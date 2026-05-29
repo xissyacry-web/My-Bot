@@ -11,7 +11,7 @@ class User(Base):
     balance = Column(Float, default=0.0)
     registered_at = Column(DateTime, default=datetime.utcnow)
     is_banned = Column(Boolean, default=False)
-    used_promocodes = Column(Text, default="")  # список использованных промокодов через запятую
+    used_promocodes = Column(Text, default="")
 
 class Category(Base):
     __tablename__ = 'categories'
@@ -27,8 +27,8 @@ class Product(Base):
     category_id = Column(Integer, ForeignKey('categories.id'))
     name = Column(String)
     price = Column(Float)
-    quantity = Column(Integer, default=0)        # количество товара
-    content = Column(Text, nullable=True)         # сам товар текстом
+    quantity = Column(Integer, default=0)
+    content = Column(Text, nullable=True)       # многострочный текст, каждая строка = 1 единица
     file_id = Column(String, nullable=True)
     is_available = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -40,6 +40,7 @@ class Purchase(Base):
     user_id = Column(Integer, ForeignKey('users.user_id'))
     product_id = Column(Integer, ForeignKey('products.id'))
     price = Column(Float)
+    amount = Column(Integer, default=1)
     purchased_at = Column(DateTime, default=datetime.utcnow)
     status = Column(String, default='completed')
 
