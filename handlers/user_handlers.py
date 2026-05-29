@@ -17,7 +17,6 @@ from config import ADMIN_IDS
 router = Router()
 
 async def ensure_user(user_id: int, username: str = None):
-    """Автоматически создаёт пользователя, если его ещё нет"""
     async with AsyncSessionLocal() as session:
         user = await get_user(session, user_id)
         if not user:
@@ -58,7 +57,6 @@ async def show_all_products(message: Message, state: FSMContext):
 async def category_selected(callback: CallbackQuery):
     cat_id = int(callback.data.split("_")[1])
     async with AsyncSessionLocal() as session:
-        # Проверяем существование категории
         from database.models import Category
         cat = await session.get(Category, cat_id)
         if not cat:
@@ -73,8 +71,7 @@ async def category_selected(callback: CallbackQuery):
             if products:
                 text = "Доступные товары:\n\n"
                 for p in products:
-                    preview = (p.content[:100] + "...") if p.content else "без описания"
-                    text += f"📌 {p.name}\n💰 Цена: {p.price}$ за шт.\n📦 В наличии: {p.quantity} шт.\n📝 {preview}\n\n"
+                    text += f"📌 {p.name}\n💰 Цена: {p.price}$ за шт.\n📦 В наличии: {p.quantity} шт.\n\n"
                 await callback.message.edit_text(text, reply_markup=products_keyboard(products))
             else:
                 await callback.answer("В этой категории пока нет товаров", show_alert=True)
@@ -98,9 +95,9 @@ async def buy_start(callback: CallbackQuery, state: FSMContext):
         if not product or not product.is_available:
             await callback.answer("Товар недоступен", show_alert=True)
             return
-        desc = product.content if product.content else "Описание отсутствует"
+        desc = product.content if product.content else "Товар без текста"
         await callback.message.answer(
-            f"📦 {product.name}\n💰 Цена: {product.price}$ за шт.\n📝 Описание:\n{desc}\n\n"
+            f"📦 {product.name}\n💰 Цена: {product.price}$ за шт.\n📝 Товар:\n{desc}\n\n"
             f"Введите количество, которое хотите купить (доступно {product.quantity} шт.):"
         )
         await state.set_state(BuyProduct.amount)
@@ -252,9 +249,12 @@ async def promocode_apply(message: Message, state: FSMContext):
 @router.message(F.text == "🔄 Замена")
 async def replace_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
-    await ensure_user(message.from_user.id, message.from_user.username)
+    user = await ensure_user(message.from_user.id, message.from_user.username)
     async with AsyncSessionLocal() as session:
-        exists = (await session.execute(select(Purchase).where(Purchase.user_id == message.from_user.id, Purchase.status == 'completed'))).first()
+        from sqlalchemy import select
+        exists = (await session.execute(
+            select(Purchase).where(Purchase.user_id == message.from_user.id, Purchase.status == 'completed')
+        )).first()
         if not exists:
             await message.answer("⚠️ Нет завершённых покупок.")
             return
@@ -278,14 +278,19 @@ async def replace_date(message: Message, state: FSMContext):
             await message.answer(f"❌ {e}")
             await state.clear()
             return
+        if not ADMIN_IDS:
+            await message.answer("❌ Администраторы не настроены.")
+            await state.clear()
+            return
         for admin_id in ADMIN_IDS:
             try:
                 await message.bot.send_message(admin_id,
-                    f"🔄 Заявка #{req.id}\nПользователь: @{message.from_user.username} ({message.from_user.id})\nТелефон: {phone}\nДата: {message.text}",
+                    f"🔄 Заявка на замену #{req.id}\nПользователь: @{message.from_user.username} ({message.from_user.id})\nТелефон: {phone}\nДата: {message.text}",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve_replace_{req.id}"),
                          InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_replace_{req.id}")]
                     ]))
-            except: pass
-    await message.answer("✅ Заявка отправлена.")
+            except Exception as e:
+                print(f"Не удалось уведомить админа {admin_id}: {e}")
+    await message.answer("✅ Заявка на замену отправлена.")
     await state.clear()
