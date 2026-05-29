@@ -14,14 +14,35 @@ class AdminAddProduct(StatesGroup):
     category_id = State()
     name = State()
     price = State()
-    file = State
+    file = State()
+    content = State()
 
-class AdminEditProduct(StatesGroup):
+class AdminAddCategory(StatesGroup):
+    name = State()
+    parent_id = State()
+
+class AdminDeleteProduct(StatesGroup):
+    category_id = State()
     product_id = State()
-    field = State()
-    value = State()
 
-class AdminManageUser(StatesGroup):
-    user_id = State()
-    action = State()
+class AdminDeleteCategory(StatesGroup):
+    category_id = State()
+
+class AdminPromoAdd(StatesGroup):
+    code = State()
     amount = State()
+    max_activations = State()
+    expires_days = State()
+
+class AdminPromoDelete(StatesGroup):
+    code = State()
+
+class AdminUserSearch(StatesGroup):
+    user_id = State()
+
+class AdminUserBalance(StatesGroup):
+    user_id = State()
+    amount = State()
+
+class AdminUserBan(StatesGroup):
+    user_id = State()
