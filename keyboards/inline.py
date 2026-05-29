@@ -1,5 +1,4 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 def categories_keyboard(categories):
@@ -32,6 +31,7 @@ def admin_main_keyboard():
     builder.button(text="🎁 Управление промокодами", callback_data="admin_promocodes")
     builder.button(text="👥 Пользователи", callback_data="admin_users_menu")
     builder.button(text="🔄 Заявки на замену", callback_data="admin_replaces")
+    builder.button(text="📨 Рассылка", callback_data="admin_broadcast")
     builder.adjust(2)
     return builder.as_markup()
 
