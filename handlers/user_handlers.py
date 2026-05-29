@@ -16,6 +16,14 @@ from config import ADMIN_IDS
 
 router = Router()
 
+async def ensure_user(user_id: int, username: str = None):
+    """Автоматически создаёт пользователя, если его ещё нет"""
+    async with AsyncSessionLocal() as session:
+        user = await get_user(session, user_id)
+        if not user:
+            user = await create_user(session, user_id, username)
+        return user
+
 async def clear_state_on_menu(message: Message, state: FSMContext):
     current = await state.get_state()
     if current is not None:
@@ -24,27 +32,24 @@ async def clear_state_on_menu(message: Message, state: FSMContext):
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
-    async with AsyncSessionLocal() as session:
-        user = await get_user(session, message.from_user.id)
-        if not user:
-            await create_user(session, message.from_user.id, message.from_user.username)
-            await message.answer("🎉 Вы зарегистрированы!", reply_markup=main_menu())
-        else:
-            await message.answer("С возвращением!", reply_markup=main_menu())
+    await ensure_user(message.from_user.id, message.from_user.username)
+    await message.answer("🎉 Добро пожаловать!", reply_markup=main_menu())
 
 @router.message(F.text == "📋 Меню")
 async def show_categories(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
+    await ensure_user(message.from_user.id, message.from_user.username)
     async with AsyncSessionLocal() as session:
         cats = await get_categories(session, parent_id=None)
         if cats:
             await message.answer("Выберите категорию:", reply_markup=categories_keyboard(cats))
         else:
-            await message.answer("Каталог пуст.")
+            await message.answer("Каталог пуст. Добавьте категории через админку.")
 
 @router.message(F.text == "📦 Наличие товаров")
 async def show_all_products(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
+    await ensure_user(message.from_user.id, message.from_user.username)
     async with AsyncSessionLocal() as session:
         text = await get_all_products_text(session)
         await message.answer(text)
@@ -53,6 +58,13 @@ async def show_all_products(message: Message, state: FSMContext):
 async def category_selected(callback: CallbackQuery):
     cat_id = int(callback.data.split("_")[1])
     async with AsyncSessionLocal() as session:
+        # Проверяем существование категории
+        from database.models import Category
+        cat = await session.get(Category, cat_id)
+        if not cat:
+            await callback.answer("Категория не найдена", show_alert=True)
+            return
+
         subcats = await get_categories(session, parent_id=cat_id)
         if subcats:
             await callback.message.edit_text("Выберите подкатегорию:", reply_markup=categories_keyboard(subcats))
@@ -62,10 +74,10 @@ async def category_selected(callback: CallbackQuery):
                 text = "Доступные товары:\n\n"
                 for p in products:
                     preview = (p.content[:100] + "...") if p.content else "без описания"
-                    text += f"📌 {p.name}\n💰 Цена: {p.price}$\n📦 В наличии: {p.quantity} шт.\n📝 {preview}\n\n"
+                    text += f"📌 {p.name}\n💰 Цена: {p.price}$ за шт.\n📦 В наличии: {p.quantity} шт.\n📝 {preview}\n\n"
                 await callback.message.edit_text(text, reply_markup=products_keyboard(products))
             else:
-                await callback.answer("В этой категории пусто", show_alert=True)
+                await callback.answer("В этой категории пока нет товаров", show_alert=True)
     await callback.answer()
 
 @router.callback_query(F.data == "back_to_categories")
@@ -78,7 +90,6 @@ async def back_to_categories(callback: CallbackQuery):
             await callback.message.edit_text("Категорий нет")
     await callback.answer()
 
-# ---------- НОВАЯ СХЕМА ПОКУПКИ ----------
 @router.callback_query(F.data.startswith("buy_"))
 async def buy_start(callback: CallbackQuery, state: FSMContext):
     product_id = int(callback.data.split("_")[1])
@@ -109,6 +120,7 @@ async def buy_amount(message: Message, state: FSMContext):
     data = await state.get_data()
     product_id = data['product_id']
     user_id = message.from_user.id
+    await ensure_user(user_id, message.from_user.username)
 
     async with AsyncSessionLocal() as session:
         result = await buy_product(session, user_id, product_id, amount)
@@ -129,27 +141,22 @@ async def buy_amount(message: Message, state: FSMContext):
             await message.answer(f"❌ {result['error']}")
     await state.clear()
 
-# ---------- ПРОФИЛЬ ----------
 @router.message(F.text == "👤 Профиль")
 async def profile(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
-    async with AsyncSessionLocal() as session:
-        user = await get_user(session, message.from_user.id)
-        if not user:
-            await message.answer("Пользователь не найден.")
-            return
-        days = (datetime.utcnow() - user.registered_at).days
-        text = (f"👤 Профиль\n"
-                f"ID: {user.user_id}\n"
-                f"Username: @{user.username or 'нет'}\n"
-                f"Баланс: {user.balance:.2f}$\n"
-                f"Регистрация: {user.registered_at.strftime('%d.%m.%Y')} ({days} дн.)")
-        await message.answer(text)
+    user = await ensure_user(message.from_user.id, message.from_user.username)
+    days = (datetime.utcnow() - user.registered_at).days
+    text = (f"👤 Профиль\n"
+            f"ID: {user.user_id}\n"
+            f"Username: @{user.username or 'нет'}\n"
+            f"Баланс: {user.balance:.2f}$\n"
+            f"Регистрация: {user.registered_at.strftime('%d.%m.%Y')} ({days} дн.)")
+    await message.answer(text)
 
-# ---------- БАЛАНС ----------
 @router.message(F.text == "💳 Пополнить баланс")
 async def ask_amount(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
+    await ensure_user(message.from_user.id, message.from_user.username)
     await message.answer("Введите сумму пополнения в $:")
     await state.set_state(ReplenishBalance.amount)
 
@@ -202,10 +209,10 @@ async def check_payment(callback: CallbackQuery):
             await callback.answer("Оплата не поступила.", show_alert=True)
     await callback.answer()
 
-# ---------- ПРОМОКОДЫ ----------
 @router.message(F.text == "🎁 Промокод")
 async def promocode_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
+    await ensure_user(message.from_user.id, message.from_user.username)
     await message.answer("Введите промокод:")
     await state.set_state(PromocodeInput.code)
 
@@ -215,6 +222,10 @@ async def promocode_apply(message: Message, state: FSMContext):
     user_id = message.from_user.id
     async with AsyncSessionLocal() as session:
         user = await get_user(session, user_id)
+        if not user:
+            await message.answer("Сначала нажмите /start")
+            await state.clear()
+            return
         promo = await session.get(Promocode, code)
 
         used = [c.strip() for c in user.used_promocodes.split(',') if c.strip()]
@@ -238,10 +249,10 @@ async def promocode_apply(message: Message, state: FSMContext):
             await message.answer(f"🎁 Промокод активирован! +{promo.bonus_amount:.2f}$")
     await state.clear()
 
-# ---------- ЗАМЕНА ----------
 @router.message(F.text == "🔄 Замена")
 async def replace_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
+    await ensure_user(message.from_user.id, message.from_user.username)
     async with AsyncSessionLocal() as session:
         exists = (await session.execute(select(Purchase).where(Purchase.user_id == message.from_user.id, Purchase.status == 'completed'))).first()
         if not exists:
