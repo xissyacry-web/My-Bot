@@ -4,11 +4,11 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
 from database.database import AsyncSessionLocal
-from database.models import User, Invoice, Promocode, Purchase
+from database.models import User, Invoice, Promocode, Purchase, Product
 from keyboards.reply import main_menu
 from keyboards.inline import categories_keyboard, products_keyboard, payment_keyboard
 from services.user_service import get_user, create_user
-from services.product_service import get_categories, get_products_by_category, buy_product
+from services.product_service import get_categories, get_products_by_category, buy_product, get_all_products_text
 from services.replace_service import create_replace_request
 from services.payment_service import create_invoice
 from utils.states import ReplenishBalance, PromocodeInput, ReplaceRequestStates
@@ -33,7 +33,6 @@ async def cmd_start(message: Message, state: FSMContext):
             await message.answer("С возвращением!", reply_markup=main_menu())
 
 @router.message(F.text == "📋 Меню")
-@router.message(F.text == "📦 Наличие товаров")
 async def show_categories(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
     async with AsyncSessionLocal() as session:
@@ -42,6 +41,13 @@ async def show_categories(message: Message, state: FSMContext):
             await message.answer("Выберите категорию:", reply_markup=categories_keyboard(categories))
         else:
             await message.answer("Каталог временно пуст.")
+
+@router.message(F.text == "📦 Наличие товаров")
+async def show_all_products(message: Message, state: FSMContext):
+    await clear_state_on_menu(message, state)
+    async with AsyncSessionLocal() as session:
+        text = await get_all_products_text(session)
+        await message.answer(text)
 
 @router.callback_query(F.data.startswith("cat_"))
 async def category_selected(callback: CallbackQuery):
@@ -53,7 +59,13 @@ async def category_selected(callback: CallbackQuery):
         else:
             products = await get_products_by_category(session, cat_id)
             if products:
-                await callback.message.edit_text("Доступные товары:", reply_markup=products_keyboard(products))
+                text = "Доступные товары:\n\n"
+                for p in products:
+                    text += f"📌 {p.name}\n💰 Цена: {p.price}$\n📦 В наличии: {p.quantity} шт.\n"
+                    if p.content:
+                        text += f"📝 Описание: {p.content[:100]}...\n"
+                    text += "\n"
+                await callback.message.edit_text(text, reply_markup=products_keyboard(products))
             else:
                 await callback.answer("В этой категории пока нет товаров", show_alert=True)
     await callback.answer()
@@ -75,15 +87,15 @@ async def buy_product_handler(callback: CallbackQuery):
     async with AsyncSessionLocal() as session:
         result = await buy_product(session, user_id, product_id)
         if result["success"]:
-            text = f"✅ Покупка успешна!\nТовар: {result['product_name']}\nОстаток на балансе: {result['balance']:.2f}$"
+            text = f"✅ Покупка успешна!\nТовар: {result['product_name']}\nОстаток на балансе: {result['balance']:.2f}$\nОсталось товара: {result['quantity_left']} шт."
             await callback.message.answer(text)
             if result.get("content"):
-                await callback.message.answer(result["content"])
+                await callback.message.answer(f"📦 Ваш товар:\n{result['content']}")
             if result.get("file_id"):
                 try:
                     await callback.message.answer_document(result["file_id"])
                 except:
-                    await callback.message.answer("⚠️ Не удалось отправить файл, обратитесь в поддержку.")
+                    pass
         else:
             await callback.message.answer(f"❌ {result['error']}")
     await callback.answer()
@@ -182,8 +194,19 @@ async def ask_promocode(message: Message, state: FSMContext):
 @router.message(PromocodeInput.code)
 async def process_promocode(message: Message, state: FSMContext):
     code = message.text.strip()
+    user_id = message.from_user.id
+    
     async with AsyncSessionLocal() as session:
+        user = await get_user(session, user_id)
         promocode = await session.get(Promocode, code)
+        
+        # Проверка на повторное использование
+        used_codes = user.used_promocodes.split(",") if user.used_promocodes else []
+        if code in used_codes:
+            await message.answer("❌ Вы уже использовали этот промокод!")
+            await state.clear()
+            return
+        
         if not promocode or not promocode.is_active:
             await message.answer("❌ Промокод недействителен.")
         elif promocode.expires_at and promocode.expires_at < datetime.utcnow():
@@ -191,9 +214,11 @@ async def process_promocode(message: Message, state: FSMContext):
         elif promocode.max_activations and promocode.used_count >= promocode.max_activations:
             await message.answer("❌ Лимит активаций исчерпан.")
         else:
-            user = await get_user(session, message.from_user.id)
             user.balance += promocode.bonus_amount
             promocode.used_count += 1
+            # Запоминаем что юзер использовал этот код
+            used_codes.append(code)
+            user.used_promocodes = ",".join(used_codes)
             await session.commit()
             await message.answer(f"🎁 Промокод активирован! Начислено {promocode.bonus_amount:.2f}$")
     await state.clear()
