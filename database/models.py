@@ -18,16 +18,17 @@ class Category(Base):
     name = Column(String)
     parent_id = Column(Integer, ForeignKey('categories.id'), nullable=True)
     is_active = Column(Boolean, default=True)
-    products = relationship("Product", back_populates="category")
+    products = relationship("Product", back_populates="category", cascade="all, delete-orphan")
 
 class Product(Base):
     __tablename__ = 'products'
     id = Column(Integer, primary_key=True)
     category_id = Column(Integer, ForeignKey('categories.id'))
     name = Column(String)
-    description = Column(Text, nullable=True)
+    description = Column(Text, nullable=True)   # описание или текст товара
+    content = Column(Text, nullable=True)       # полный текст/данные товара
     price = Column(Float)
-    file_id = Column(String, nullable=True)  # Telegram file_id
+    file_id = Column(String, nullable=True)    # Telegram file_id
     is_available = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     category = relationship("Category", back_populates="products")
@@ -39,12 +40,12 @@ class Purchase(Base):
     product_id = Column(Integer, ForeignKey('products.id'))
     price = Column(Float)
     purchased_at = Column(DateTime, default=datetime.utcnow)
-    status = Column(String, default='completed')  # completed, replaced, refunded
+    status = Column(String, default='completed')
 
 class Promocode(Base):
     __tablename__ = 'promocodes'
     code = Column(String, primary_key=True)
-    bonus_amount = Column(Float)
+    bonus_amount = Column(Float, default=0.0)   # сумма в $
     max_activations = Column(Integer, nullable=True)
     used_count = Column(Integer, default=0)
     expires_at = Column(DateTime, nullable=True)
@@ -57,7 +58,7 @@ class ReplaceRequest(Base):
     purchase_id = Column(Integer, ForeignKey('purchases.id'))
     phone_number = Column(String)
     date_time = Column(String)
-    status = Column(String, default='pending')  # pending, approved, rejected
+    status = Column(String, default='pending')
     admin_comment = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -65,7 +66,7 @@ class Invoice(Base):
     __tablename__ = 'invoices'
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.user_id'))
-    invoice_id = Column(Integer)  # ID инвойса из Crypto Bot
+    invoice_id = Column(Integer)
     amount = Column(Float)
-    status = Column(String, default='active')  # active, paid, expired
+    status = Column(String, default='active')
     created_at = Column(DateTime, default=datetime.utcnow)
