@@ -17,7 +17,6 @@ class BuyProduct(StatesGroup):
 class AdminAddProduct(StatesGroup):
     category_id = State()
     name = State()
-    quantity = State()
     price = State()
     content = State()
 
