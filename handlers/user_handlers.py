@@ -11,14 +11,14 @@ from services.user_service import get_user, create_user
 from services.product_service import get_categories, get_products_by_category, buy_product, get_all_products_text
 from services.replace_service import create_replace_request
 from services.payment_service import create_invoice
-from utils.states import ReplenishBalance, PromocodeInput, ReplaceRequestStates
+from utils.states import ReplenishBalance, PromocodeInput, ReplaceRequestStates, BuyProduct
 from config import ADMIN_IDS
 
 router = Router()
 
 async def clear_state_on_menu(message: Message, state: FSMContext):
-    current_state = await state.get_state()
-    if current_state is not None:
+    current = await state.get_state()
+    if current is not None:
         await state.clear()
 
 @router.message(CommandStart())
@@ -36,11 +36,11 @@ async def cmd_start(message: Message, state: FSMContext):
 async def show_categories(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
     async with AsyncSessionLocal() as session:
-        categories = await get_categories(session, parent_id=None)
-        if categories:
-            await message.answer("Выберите категорию:", reply_markup=categories_keyboard(categories))
+        cats = await get_categories(session, parent_id=None)
+        if cats:
+            await message.answer("Выберите категорию:", reply_markup=categories_keyboard(cats))
         else:
-            await message.answer("Каталог временно пуст.")
+            await message.answer("Каталог пуст.")
 
 @router.message(F.text == "📦 Наличие товаров")
 async def show_all_products(message: Message, state: FSMContext):
@@ -61,63 +61,92 @@ async def category_selected(callback: CallbackQuery):
             if products:
                 text = "Доступные товары:\n\n"
                 for p in products:
-                    text += f"📌 {p.name}\n💰 Цена: {p.price}$\n📦 В наличии: {p.quantity} шт.\n"
-                    if p.content:
-                        text += f"📝 Описание: {p.content[:100]}...\n"
-                    text += "\n"
+                    preview = (p.content[:100] + "...") if p.content else "без описания"
+                    text += f"📌 {p.name}\n💰 Цена: {p.price}$\n📦 В наличии: {p.quantity} шт.\n📝 {preview}\n\n"
                 await callback.message.edit_text(text, reply_markup=products_keyboard(products))
             else:
-                await callback.answer("В этой категории пока нет товаров", show_alert=True)
+                await callback.answer("В этой категории пусто", show_alert=True)
     await callback.answer()
 
 @router.callback_query(F.data == "back_to_categories")
 async def back_to_categories(callback: CallbackQuery):
     async with AsyncSessionLocal() as session:
-        categories = await get_categories(session, parent_id=None)
-        if categories:
-            await callback.message.edit_text("Категории:", reply_markup=categories_keyboard(categories))
+        cats = await get_categories(session, parent_id=None)
+        if cats:
+            await callback.message.edit_text("Категории:", reply_markup=categories_keyboard(cats))
         else:
             await callback.message.edit_text("Категорий нет")
     await callback.answer()
 
+# ---------- НОВАЯ СХЕМА ПОКУПКИ ----------
 @router.callback_query(F.data.startswith("buy_"))
-async def buy_product_handler(callback: CallbackQuery):
+async def buy_start(callback: CallbackQuery, state: FSMContext):
     product_id = int(callback.data.split("_")[1])
-    user_id = callback.from_user.id
     async with AsyncSessionLocal() as session:
-        result = await buy_product(session, user_id, product_id)
+        product = await session.get(Product, product_id)
+        if not product or not product.is_available:
+            await callback.answer("Товар недоступен", show_alert=True)
+            return
+        desc = product.content if product.content else "Описание отсутствует"
+        await callback.message.answer(
+            f"📦 {product.name}\n💰 Цена: {product.price}$ за шт.\n📝 Описание:\n{desc}\n\n"
+            f"Введите количество, которое хотите купить (доступно {product.quantity} шт.):"
+        )
+        await state.set_state(BuyProduct.amount)
+        await state.update_data(product_id=product_id)
+    await callback.answer()
+
+@router.message(BuyProduct.amount)
+async def buy_amount(message: Message, state: FSMContext):
+    try:
+        amount = int(message.text)
+        if amount <= 0:
+            raise ValueError
+    except:
+        await message.answer("Введите положительное целое число.")
+        return
+
+    data = await state.get_data()
+    product_id = data['product_id']
+    user_id = message.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        result = await buy_product(session, user_id, product_id, amount)
         if result["success"]:
-            text = f"✅ Покупка успешна!\nТовар: {result['product_name']}\nОстаток на балансе: {result['balance']:.2f}$\nОсталось товара: {result['quantity_left']} шт."
-            await callback.message.answer(text)
+            text = (f"✅ Куплено {amount} шт.\n"
+                    f"Товар: {result['product_name']}\n"
+                    f"Остаток: {result['balance']:.2f}$\n"
+                    f"Осталось товара: {result['quantity_left']} шт.")
+            await message.answer(text)
             if result.get("content"):
-                await callback.message.answer(f"📦 Ваш товар:\n{result['content']}")
+                await message.answer(f"📦 Ваш товар:\n{result['content']}")
             if result.get("file_id"):
                 try:
-                    await callback.message.answer_document(result["file_id"])
+                    await message.answer_document(result["file_id"])
                 except:
                     pass
         else:
-            await callback.message.answer(f"❌ {result['error']}")
-    await callback.answer()
+            await message.answer(f"❌ {result['error']}")
+    await state.clear()
 
+# ---------- ПРОФИЛЬ ----------
 @router.message(F.text == "👤 Профиль")
 async def profile(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
     async with AsyncSessionLocal() as session:
         user = await get_user(session, message.from_user.id)
         if not user:
+            await message.answer("Пользователь не найден.")
             return
         days = (datetime.utcnow() - user.registered_at).days
-        text = (
-            f"👤 Ваш профиль:\n"
-            f"Telegram ID: {user.user_id}\n"
-            f"Username: @{user.username or 'нет'}\n"
-            f"Баланс: {user.balance:.2f}$\n"
-            f"Дата регистрации: {user.registered_at.strftime('%d.%m.%Y')}\n"
-            f"Дней с регистрации: {days}"
-        )
+        text = (f"👤 Профиль\n"
+                f"ID: {user.user_id}\n"
+                f"Username: @{user.username or 'нет'}\n"
+                f"Баланс: {user.balance:.2f}$\n"
+                f"Регистрация: {user.registered_at.strftime('%d.%m.%Y')} ({days} дн.)")
         await message.answer(text)
 
+# ---------- БАЛАНС ----------
 @router.message(F.text == "💳 Пополнить баланс")
 async def ask_amount(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
@@ -130,29 +159,21 @@ async def process_amount(message: Message, state: FSMContext):
         amount = float(message.text.replace(',', '.'))
         if amount <= 0:
             raise ValueError
-    except ValueError:
-        await message.answer("❌ Введите положительное число.")
+    except:
+        await message.answer("Введите положительное число.")
         return
-
     try:
-        invoice_data = await create_invoice(amount, f"Пополнение баланса для {message.from_user.id}")
+        inv = await create_invoice(amount, f"Пополнение {message.from_user.id}")
     except Exception as e:
-        await message.answer(f"Ошибка при создании счёта: {e}")
+        await message.answer(f"Ошибка: {e}")
         await state.clear()
         return
-
-    pay_url = invoice_data["pay_url"]
-    invoice_id = invoice_data["invoice_id"]
-
     async with AsyncSessionLocal() as session:
-        inv = Invoice(user_id=message.from_user.id, invoice_id=invoice_id, amount=amount)
-        session.add(inv)
+        invoice = Invoice(user_id=message.from_user.id, invoice_id=inv['invoice_id'], amount=amount)
+        session.add(invoice)
         await session.commit()
-
-    await message.answer(
-        f"💳 Счёт на {amount}$ создан.\nОплатите по кнопке ниже и нажмите «Проверить оплату» после перевода.",
-        reply_markup=payment_keyboard(pay_url)
-    )
+    await message.answer(f"💳 Счёт на {amount}$ создан.\nОплатите и нажмите «Проверить оплату».",
+                         reply_markup=payment_keyboard(inv['pay_url']))
     await state.clear()
 
 @router.callback_query(F.data == "check_payment")
@@ -160,116 +181,100 @@ async def check_payment(callback: CallbackQuery):
     user_id = callback.from_user.id
     async with AsyncSessionLocal() as session:
         from sqlalchemy import select
-        result = await session.execute(
-            select(Invoice).where(Invoice.user_id == user_id, Invoice.status == 'active')
-                .order_by(Invoice.created_at.desc()).limit(1)
-        )
-        invoice = result.scalar_one_or_none()
-        if not invoice:
-            await callback.answer("Нет активных счетов для проверки.", show_alert=True)
+        inv = (await session.execute(select(Invoice).where(Invoice.user_id == user_id, Invoice.status == 'active')
+                                     .order_by(Invoice.created_at.desc()).limit(1))).scalar_one_or_none()
+        if not inv:
+            await callback.answer("Нет активных счетов.", show_alert=True)
             return
-
         from services.payment_service import get_invoice
-        data = await get_invoice(invoice.invoice_id)
-        if data and data["status"] == "paid":
-            invoice.status = "paid"
+        data = await get_invoice(inv.invoice_id)
+        if data and data['status'] == 'paid':
+            inv.status = 'paid'
             user = await get_user(session, user_id)
-            user.balance += invoice.amount
+            user.balance += inv.amount
             await session.commit()
-            await callback.message.answer(f"✅ Оплата получена! Ваш баланс пополнен на {invoice.amount:.2f}$.")
-        elif data and data["status"] == "expired":
-            invoice.status = "expired"
+            await callback.message.answer(f"✅ Зачислено {inv.amount:.2f}$")
+        elif data and data['status'] == 'expired':
+            inv.status = 'expired'
             await session.commit()
-            await callback.message.answer("⌛ Срок действия счёта истёк. Создайте новый.")
+            await callback.message.answer("⌛ Счёт истёк.")
         else:
-            await callback.answer("Оплата ещё не поступила.", show_alert=True)
+            await callback.answer("Оплата не поступила.", show_alert=True)
     await callback.answer()
 
+# ---------- ПРОМОКОДЫ ----------
 @router.message(F.text == "🎁 Промокод")
-async def ask_promocode(message: Message, state: FSMContext):
+async def promocode_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
     await message.answer("Введите промокод:")
     await state.set_state(PromocodeInput.code)
 
 @router.message(PromocodeInput.code)
-async def process_promocode(message: Message, state: FSMContext):
+async def promocode_apply(message: Message, state: FSMContext):
     code = message.text.strip()
     user_id = message.from_user.id
-    
     async with AsyncSessionLocal() as session:
         user = await get_user(session, user_id)
-        promocode = await session.get(Promocode, code)
-        
-        # Проверка на повторное использование
-        used_codes = user.used_promocodes.split(",") if user.used_promocodes else []
-        if code in used_codes:
-            await message.answer("❌ Вы уже использовали этот промокод!")
+        promo = await session.get(Promocode, code)
+
+        used = [c.strip() for c in user.used_promocodes.split(',') if c.strip()]
+        if code in used:
+            await message.answer("❌ Вы уже использовали этот промокод.")
             await state.clear()
             return
-        
-        if not promocode or not promocode.is_active:
+
+        if not promo or not promo.is_active:
             await message.answer("❌ Промокод недействителен.")
-        elif promocode.expires_at and promocode.expires_at < datetime.utcnow():
-            await message.answer("❌ Срок действия промокода истёк.")
-        elif promocode.max_activations and promocode.used_count >= promocode.max_activations:
+        elif promo.expires_at and promo.expires_at < datetime.utcnow():
+            await message.answer("❌ Истёк срок действия.")
+        elif promo.max_activations is not None and promo.used_count >= promo.max_activations:
             await message.answer("❌ Лимит активаций исчерпан.")
         else:
-            user.balance += promocode.bonus_amount
-            promocode.used_count += 1
-            # Запоминаем что юзер использовал этот код
-            used_codes.append(code)
-            user.used_promocodes = ",".join(used_codes)
+            user.balance += promo.bonus_amount
+            promo.used_count += 1
+            used.append(code)
+            user.used_promocodes = ','.join(used)
             await session.commit()
-            await message.answer(f"🎁 Промокод активирован! Начислено {promocode.bonus_amount:.2f}$")
+            await message.answer(f"🎁 Промокод активирован! +{promo.bonus_amount:.2f}$")
     await state.clear()
 
+# ---------- ЗАМЕНА ----------
 @router.message(F.text == "🔄 Замена")
-async def start_replace(message: Message, state: FSMContext):
+async def replace_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
     async with AsyncSessionLocal() as session:
-        from sqlalchemy import select
-        result = await session.execute(
-            select(Purchase).where(Purchase.user_id == message.from_user.id, Purchase.status == 'completed')
-        )
-        if not result.first():
-            await message.answer("⚠️ У вас нет совершённых покупок для оформления замены.")
+        exists = (await session.execute(select(Purchase).where(Purchase.user_id == message.from_user.id, Purchase.status == 'completed'))).first()
+        if not exists:
+            await message.answer("⚠️ Нет завершённых покупок.")
             return
     await message.answer("📱 Введите номер телефона:")
     await state.set_state(ReplaceRequestStates.phone_number)
 
 @router.message(ReplaceRequestStates.phone_number)
-async def get_phone(message: Message, state: FSMContext):
+async def replace_phone(message: Message, state: FSMContext):
     await state.update_data(phone_number=message.text)
-    await message.answer("📅 Введите дату и время операции (пример: 25.03.2025 14:30):")
+    await message.answer("📅 Введите дату и время (пример: 25.03.2025 14:30):")
     await state.set_state(ReplaceRequestStates.date_time)
 
 @router.message(ReplaceRequestStates.date_time)
-async def get_date_time(message: Message, state: FSMContext):
+async def replace_date(message: Message, state: FSMContext):
     data = await state.get_data()
     phone = data['phone_number']
-    date_time = message.text
-
     async with AsyncSessionLocal() as session:
         try:
-            req = await create_replace_request(session, message.from_user.id, phone, date_time)
+            req = await create_replace_request(session, message.from_user.id, phone, message.text)
         except ValueError as e:
             await message.answer(f"❌ {e}")
             await state.clear()
             return
-
         for admin_id in ADMIN_IDS:
             try:
-                await message.bot.send_message(
-                    admin_id,
-                    f"🔄 Новая заявка на замену #{req.id}\n"
-                    f"Пользователь: @{message.from_user.username} ({message.from_user.id})\n"
-                    f"Телефон: {phone}\nДата/время: {date_time}",
+                await message.bot.send_message(admin_id,
+                    f"🔄 Заявка #{req.id}\nПользователь: @{message.from_user.username} ({message.from_user.id})\nТелефон: {phone}\nДата: {message.text}",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve_replace_{req.id}"),
                          InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_replace_{req.id}")]
-                    ])
-                )
-            except:
-                pass
-    await message.answer("✅ Заявка на замену отправлена. Ожидайте решение администратора.")
+                    ]))
+            except: pass
+    await message.answer("✅ Заявка отправлена.")
     await state.clear()
