@@ -1,0 +1,4 @@
+aiogram>=3.0
+sqlalchemy>=2.0
+aiosqlite
+aiohttp
