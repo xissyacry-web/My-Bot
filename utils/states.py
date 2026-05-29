@@ -10,11 +10,15 @@ class ReplaceRequestStates(StatesGroup):
     phone_number = State()
     date_time = State()
 
+class BuyProduct(StatesGroup):
+    product_id = State()
+    amount = State()
+
 class AdminAddProduct(StatesGroup):
     category_id = State()
     name = State()
+    quantity = State()
     price = State()
-    file = State()
     content = State()
 
 class AdminAddCategory(StatesGroup):
