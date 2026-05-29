@@ -49,3 +49,6 @@ class AdminUserBalance(StatesGroup):
 
 class AdminUserBan(StatesGroup):
     user_id = State()
+
+class AdminBroadcast(StatesGroup):
+    message = State()
