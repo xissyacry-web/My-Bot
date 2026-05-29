@@ -29,67 +29,84 @@ async def back(callback: CallbackQuery):
 # ---------- ДОБАВЛЕНИЕ ТОВАРА ----------
 @router.callback_query(F.data == "admin_add_product")
 async def add_prod(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("Введите ID категории:")
+    async with AsyncSessionLocal() as session:
+        cats = await get_categories(session)
+        if not cats:
+            await callback.message.edit_text("Сначала создайте категорию через 'Добавить категорию'.")
+            return
+        text = "Категории:\n" + "\n".join(f"{c.id}: {c.name}" for c in cats)
+        text += "\n\nВведите ID категории, куда добавить товар:"
+    await callback.message.edit_text(text)
     await state.set_state(AdminAddProduct.category_id)
 
 @router.message(AdminAddProduct.category_id)
 async def ap_cat(message: Message, state: FSMContext):
-    try: cat = int(message.text)
-    except: await message.answer("Число!"); return
-    await state.update_data(category_id=cat)
-    await message.answer("Название товара:")
+    try:
+        cat_id = int(message.text)
+    except:
+        await message.answer("Введите число")
+        return
+    async with AsyncSessionLocal() as session:
+        cat = await session.get(Category, cat_id)
+        if not cat:
+            await message.answer("❌ Категория с таким ID не найдена. Попробуйте ещё раз.")
+            return
+    await state.update_data(category_id=cat_id)
+    await message.answer("Введите название товара:")
     await state.set_state(AdminAddProduct.name)
 
 @router.message(AdminAddProduct.name)
 async def ap_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
-    await message.answer("Количество (сколько всего единиц):")
-    await state.set_state(AdminAddProduct.quantity)
-
-@router.message(AdminAddProduct.quantity)
-async def ap_qty(message: Message, state: FSMContext):
-    try: qty = int(message.text)
-    except: await message.answer("Число!"); return
-    await state.update_data(quantity=qty)
-    await message.answer("Цена за 1 шт. в $:")
+    await message.answer("Введите цену за 1 шт. в $:")
     await state.set_state(AdminAddProduct.price)
 
 @router.message(AdminAddProduct.price)
 async def ap_price(message: Message, state: FSMContext):
-    try: price = float(message.text)
-    except: await message.answer("Число!"); return
+    try:
+        price = float(message.text)
+    except:
+        await message.answer("Введите число")
+        return
     await state.update_data(price=price)
-    await message.answer("Отправьте текст товара (каждая строка = одна единица):")
+    await message.answer("Теперь отправьте текст товара. Каждая непустая строка будет считаться одной единицей товара:")
     await state.set_state(AdminAddProduct.content)
 
 @router.message(AdminAddProduct.content)
 async def ap_content(message: Message, state: FSMContext):
     content = message.text
+    # Считаем количество как число непустых строк
+    lines = [line.strip() for line in content.split('\n') if line.strip()]
+    quantity = len(lines)
+    if quantity == 0:
+        await message.answer("❌ Текст товара не может быть пустым. Отправьте хотя бы одну строку.")
+        return
+
     data = await state.get_data()
     async with AsyncSessionLocal() as session:
         prod = Product(
             category_id=data['category_id'],
             name=data['name'],
-            quantity=data['quantity'],
+            quantity=quantity,
             price=data['price'],
             content=content,
             file_id=None
         )
         session.add(prod)
         await session.commit()
-    await message.answer(f"✅ Товар '{data['name']}' добавлен ({data['quantity']} шт.)")
+    await message.answer(f"✅ Товар '{data['name']}' добавлен! Количество: {quantity} шт., Цена: {data['price']}$")
     await state.clear()
 
-# ---------- КАТЕГОРИИ ----------
+# ---------- ДОБАВЛЕНИЕ КАТЕГОРИИ ----------
 @router.callback_query(F.data == "admin_add_category")
 async def add_cat(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("Название категории:")
+    await callback.message.edit_text("Введите название новой категории:")
     await state.set_state(AdminAddCategory.name)
 
 @router.message(AdminAddCategory.name)
 async def cat_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
-    await message.answer("ID родительской категории (0 - верхний уровень):")
+    await message.answer("Введите ID родительской категории (0 — если верхний уровень):")
     await state.set_state(AdminAddCategory.parent_id)
 
 @router.message(AdminAddCategory.parent_id)
@@ -97,13 +114,16 @@ async def cat_parent(message: Message, state: FSMContext):
     data = await state.get_data()
     try:
         pid = int(message.text)
-        if pid == 0: pid = None
-    except: await message.answer("Число!"); return
+        if pid == 0:
+            pid = None
+    except:
+        await message.answer("Введите число")
+        return
     async with AsyncSessionLocal() as session:
         cat = Category(name=data['name'], parent_id=pid)
         session.add(cat)
         await session.commit()
-    await message.answer("✅ Категория добавлена")
+    await message.answer("✅ Категория добавлена!")
     await state.clear()
 
 # ---------- УДАЛЕНИЕ ТОВАРА / КАТЕГОРИИ ----------
@@ -125,14 +145,14 @@ async def del_prod_list(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as session:
         prods = await get_products_by_category(session, cat_id)
         if not prods:
-            await callback.answer("Нет товаров", show_alert=True)
+            await callback.answer("Нет товаров в этой категории", show_alert=True)
             return
         builder = InlineKeyboardBuilder()
         for p in prods:
             builder.button(text=f"{p.name} - {p.price}$", callback_data=f"delprod_{p.id}")
         builder.adjust(1)
         builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back"))
-        await callback.message.edit_text("Выберите товар:", reply_markup=builder.as_markup())
+        await callback.message.edit_text("Выберите товар для удаления:", reply_markup=builder.as_markup())
     await state.set_state(AdminDeleteProduct.product_id)
 
 @router.callback_query(AdminDeleteProduct.product_id, F.data.startswith("delprod_"))
@@ -145,7 +165,7 @@ async def del_prod_exec(callback: CallbackQuery, state: FSMContext):
             await session.commit()
             await callback.message.edit_text("✅ Товар удалён")
         else:
-            await callback.answer("Не найден")
+            await callback.answer("Товар не найден")
     await state.clear()
 
 @router.callback_query(F.data == "admin_delete_category")
@@ -156,7 +176,7 @@ async def del_cat(callback: CallbackQuery, state: FSMContext):
             await callback.message.edit_text("Нет категорий")
             return
         from keyboards.inline import categories_keyboard
-        await callback.message.edit_text("Выберите категорию:", reply_markup=categories_keyboard(cats))
+        await callback.message.edit_text("Выберите категорию для удаления:", reply_markup=categories_keyboard(cats))
     await state.set_state(AdminDeleteCategory.category_id)
 
 @router.callback_query(AdminDeleteCategory.category_id, F.data.startswith("cat_"))
@@ -169,10 +189,10 @@ async def del_cat_exec(callback: CallbackQuery, state: FSMContext):
             await session.commit()
             await callback.message.edit_text("✅ Категория удалена")
         else:
-            await callback.answer("Не найдена")
+            await callback.answer("Категория не найдена")
     await state.clear()
 
-# ---------- ПРОМОКОДЫ (как раньше) ----------
+# ---------- ПРОМОКОДЫ ----------
 @router.callback_query(F.data == "admin_promocodes")
 async def promo_menu(callback: CallbackQuery):
     from keyboards.inline import admin_promocodes_keyboard
@@ -181,50 +201,63 @@ async def promo_menu(callback: CallbackQuery):
 
 @router.callback_query(F.data == "promo_add")
 async def promo_add_start(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("Код:")
+    await callback.message.edit_text("Введите промокод (текст):")
     await state.set_state(AdminPromoAdd.code)
 
 @router.message(AdminPromoAdd.code)
 async def promo_code(message: Message, state: FSMContext):
     await state.update_data(code=message.text.strip())
-    await message.answer("Сумма бонуса ($):")
+    await message.answer("Сумма бонуса в $:")
     await state.set_state(AdminPromoAdd.amount)
 
 @router.message(AdminPromoAdd.amount)
 async def promo_amount(message: Message, state: FSMContext):
-    try: amount = float(message.text)
-    except: await message.answer("Число!"); return
+    try:
+        amount = float(message.text)
+    except:
+        await message.answer("Введите число")
+        return
     await state.update_data(amount=amount)
-    await message.answer("Макс. активаций (0=безлимит):")
+    await message.answer("Макс. кол-во активаций (0 — безлимит):")
     await state.set_state(AdminPromoAdd.max_activations)
 
 @router.message(AdminPromoAdd.max_activations)
 async def promo_max(message: Message, state: FSMContext):
     try:
         max_a = int(message.text)
-        if max_a == 0: max_a = None
-    except: await message.answer("Число!"); return
+        if max_a == 0:
+            max_a = None
+    except:
+        await message.answer("Введите число")
+        return
     await state.update_data(max_activations=max_a)
-    await message.answer("Срок действия (дней, 0=бессрочно):")
+    await message.answer("Срок действия в днях (0 — бессрочно):")
     await state.set_state(AdminPromoAdd.expires_days)
 
 @router.message(AdminPromoAdd.expires_days)
 async def promo_exp(message: Message, state: FSMContext):
-    try: days = int(message.text)
-    except: await message.answer("Число!"); return
+    try:
+        days = int(message.text)
+    except:
+        await message.answer("Введите число")
+        return
     exp = datetime.utcnow() + timedelta(days=days) if days > 0 else None
     data = await state.get_data()
     async with AsyncSessionLocal() as session:
-        promo = Promocode(code=data['code'], bonus_amount=data['amount'],
-                          max_activations=data['max_activations'], expires_at=exp)
+        promo = Promocode(
+            code=data['code'],
+            bonus_amount=data['amount'],
+            max_activations=data['max_activations'],
+            expires_at=exp
+        )
         session.add(promo)
         await session.commit()
-    await message.answer(f"✅ Промокод {data['code']} создан")
+    await message.answer(f"✅ Промокод {data['code']} создан!")
     await state.clear()
 
 @router.callback_query(F.data == "promo_delete")
 async def promo_del_start(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("Код для удаления:")
+    await callback.message.edit_text("Введите код промокода для удаления:")
     await state.set_state(AdminPromoDelete.code)
 
 @router.message(AdminPromoDelete.code)
@@ -235,9 +268,9 @@ async def promo_del(message: Message, state: FSMContext):
         if promo:
             await session.delete(promo)
             await session.commit()
-            await message.answer("✅ Удалён")
+            await message.answer("✅ Промокод удалён")
         else:
-            await message.answer("❌ Не найден")
+            await message.answer("❌ Промокод не найден")
     await state.clear()
 
 @router.callback_query(F.data == "promo_list")
@@ -248,7 +281,7 @@ async def promo_list(callback: CallbackQuery):
         if not promos:
             await callback.answer("Нет промокодов", show_alert=True)
             return
-        text = "Промокоды:\n"
+        text = "Список промокодов:\n"
         for p in promos:
             exp = p.expires_at.strftime("%d.%m.%Y") if p.expires_at else "бессрочно"
             lim = f"{p.used_count}/{p.max_activations}" if p.max_activations else "безлимит"
@@ -266,38 +299,47 @@ async def users_menu(callback: CallbackQuery):
 
 @router.callback_query(F.data == "user_search")
 async def user_search_start(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("Telegram ID:")
+    await callback.message.edit_text("Введите Telegram ID:")
     await state.set_state(AdminUserSearch.user_id)
 
 @router.message(AdminUserSearch.user_id)
 async def user_search_res(message: Message, state: FSMContext):
-    try: uid = int(message.text)
-    except: await message.answer("Число!"); return
+    try:
+        uid = int(message.text)
+    except:
+        await message.answer("Введите число")
+        return
     async with AsyncSessionLocal() as session:
         user = await session.get(User, uid)
         if user:
-            await message.answer(f"ID: {user.user_id}\nUsername: @{user.username}\nБаланс: {user.balance:.2f}$\nБан: {user.is_banned}")
+            await message.answer(f"ID: {user.user_id}\nUsername: @{user.username}\nБаланс: {user.balance:.2f}$\nБан: {'да' if user.is_banned else 'нет'}")
         else:
-            await message.answer("Не найден.")
+            await message.answer("Пользователь не найден.")
     await state.clear()
 
 @router.callback_query(F.data == "user_balance")
 async def user_bal_start(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("Telegram ID:")
+    await callback.message.edit_text("Введите Telegram ID:")
     await state.set_state(AdminUserBalance.user_id)
 
 @router.message(AdminUserBalance.user_id)
 async def user_bal_uid(message: Message, state: FSMContext):
-    try: uid = int(message.text)
-    except: await message.answer("Число!"); return
+    try:
+        uid = int(message.text)
+    except:
+        await message.answer("Введите число")
+        return
     await state.update_data(user_id=uid)
-    await message.answer("Сумма (+/-):")
+    await message.answer("Сумма (+ начислить, - списать):")
     await state.set_state(AdminUserBalance.amount)
 
 @router.message(AdminUserBalance.amount)
 async def user_bal_amount(message: Message, state: FSMContext):
-    try: amount = float(message.text)
-    except: await message.answer("Число!"); return
+    try:
+        amount = float(message.text)
+    except:
+        await message.answer("Введите число")
+        return
     data = await state.get_data()
     async with AsyncSessionLocal() as session:
         user = await session.get(User, data['user_id'])
@@ -306,18 +348,21 @@ async def user_bal_amount(message: Message, state: FSMContext):
             await session.commit()
             await message.answer(f"Баланс изменён. Текущий: {user.balance:.2f}$")
         else:
-            await message.answer("Не найден.")
+            await message.answer("Пользователь не найден.")
     await state.clear()
 
 @router.callback_query(F.data == "user_ban")
 async def user_ban_start(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("Telegram ID:")
+    await callback.message.edit_text("Введите Telegram ID:")
     await state.set_state(AdminUserBan.user_id)
 
 @router.message(AdminUserBan.user_id)
 async def user_ban_exec(message: Message, state: FSMContext):
-    try: uid = int(message.text)
-    except: await message.answer("Число!"); return
+    try:
+        uid = int(message.text)
+    except:
+        await message.answer("Введите число")
+        return
     async with AsyncSessionLocal() as session:
         user = await session.get(User, uid)
         if user:
@@ -326,7 +371,7 @@ async def user_ban_exec(message: Message, state: FSMContext):
             await session.commit()
             await message.answer(f"Пользователь {uid} {st}.")
         else:
-            await message.answer("Не найден.")
+            await message.answer("Пользователь не найден.")
     await state.clear()
 
 # ---------- ЗАМЕНЫ ----------
@@ -373,7 +418,7 @@ async def app_replace(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("reject_replace_"))
 async def rej_replace(callback: CallbackQuery, state: FSMContext):
     rid = int(callback.data.split("_")[2])
-    await callback.message.answer("Причина отказа:")
+    await callback.message.answer("Введите причину отказа:")
     await state.set_state(AdminUserBan.user_id)
     await state.update_data(req_id=rid)
     await callback.answer()
