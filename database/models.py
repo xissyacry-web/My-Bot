@@ -11,6 +11,7 @@ class User(Base):
     balance = Column(Float, default=0.0)
     registered_at = Column(DateTime, default=datetime.utcnow)
     is_banned = Column(Boolean, default=False)
+    used_promocodes = Column(Text, default="")  # список использованных промокодов через запятую
 
 class Category(Base):
     __tablename__ = 'categories'
@@ -25,10 +26,10 @@ class Product(Base):
     id = Column(Integer, primary_key=True)
     category_id = Column(Integer, ForeignKey('categories.id'))
     name = Column(String)
-    description = Column(Text, nullable=True)   # описание или текст товара
-    content = Column(Text, nullable=True)       # полный текст/данные товара
     price = Column(Float)
-    file_id = Column(String, nullable=True)    # Telegram file_id
+    quantity = Column(Integer, default=0)        # количество товара
+    content = Column(Text, nullable=True)         # сам товар текстом
+    file_id = Column(String, nullable=True)
     is_available = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     category = relationship("Category", back_populates="products")
@@ -45,7 +46,7 @@ class Purchase(Base):
 class Promocode(Base):
     __tablename__ = 'promocodes'
     code = Column(String, primary_key=True)
-    bonus_amount = Column(Float, default=0.0)   # сумма в $
+    bonus_amount = Column(Float, default=0.0)
     max_activations = Column(Integer, nullable=True)
     used_count = Column(Integer, default=0)
     expires_at = Column(DateTime, nullable=True)
