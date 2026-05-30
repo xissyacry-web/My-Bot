@@ -3,10 +3,8 @@ from aiogram import Bot
 
 async def log_to_channel(bot: Bot, text: str):
     if LOG_CHAT_ID:
-        try:
-            await bot.send_message(LOG_CHAT_ID, text)
-        except Exception as e:
-            print(f"Ошибка отправки лога: {e}")
+        try: await bot.send_message(LOG_CHAT_ID, text)
+        except Exception as e: print(f"Ошибка отправки лога: {e}")
 
 async def log_purchase(bot: Bot, user_id: int, username: str, product_name: str, amount: int, price: float):
     text = (f"🛒 Покупка\n"
@@ -30,10 +28,6 @@ async def log_promo(bot: Bot, user_id: int, username: str, code: str, bonus: flo
 
 async def log_register(bot: Bot, user_id: int, username: str):
     text = f"🆕 Новый пользователь: @{username or '—'} ({user_id})"
-    await log_to_channel(bot, text)
-
-async def log_replace(bot: Bot, user_id: int, username: str, log_number: str):
-    text = f"🔄 Заявка на замену\n👤 @{username or '—'} ({user_id})\n📝 Номер лога: {log_number}"
     await log_to_channel(bot, text)
 
 async def log_broadcast(bot: Bot, admin_id: int, text: str, success: int, fail: int):
