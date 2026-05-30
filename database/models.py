@@ -11,7 +11,7 @@ class User(Base):
     balance = Column(Float, default=0.0)
     registered_at = Column(DateTime, default=datetime.utcnow)
     is_banned = Column(Boolean, default=False)
-    ban_reason = Column(Text, nullable=True)           # причина бана
+    ban_reason = Column(Text, nullable=True)
     used_promocodes = Column(Text, default="")
 
 class Category(Base):
@@ -27,8 +27,9 @@ class Product(Base):
     id = Column(Integer, primary_key=True)
     category_id = Column(Integer, ForeignKey('categories.id'))
     name = Column(String)
+    description = Column(Text, nullable=True)      # описание товара
     price = Column(Float)
-    quantity = Column(Integer, default=0)
+    quantity = Column(Integer, default=0)          # 0 = бесконечно
     content = Column(Text, nullable=True)
     file_id = Column(String, nullable=True)
     is_available = Column(Boolean, default=True)
@@ -59,9 +60,10 @@ class ReplaceRequest(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.user_id'))
     purchase_id = Column(Integer, ForeignKey('purchases.id'))
-    log_number = Column(String)                    # номер лога
-    photos = Column(Text)                          # список file_id через запятую
-    complaint = Column(Text)                       # текст жалобы
+    phone_number = Column(String, nullable=True)   # оставляем для совместимости
+    date_time = Column(String, nullable=True)
+    photos = Column(Text)
+    complaint = Column(Text)
     status = Column(String, default='pending')
     admin_comment = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -79,7 +81,7 @@ class UnbanRequest(Base):
     __tablename__ = 'unban_requests'
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.user_id'))
-    photos = Column(Text)                          # file_id через запятую
+    photos = Column(Text)
     description = Column(Text)
     status = Column(String, default='pending')
     created_at = Column(DateTime, default=datetime.utcnow)
