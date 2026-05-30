@@ -32,6 +32,9 @@ def admin_main_keyboard():
     builder.button(text="👥 Пользователи", callback_data="admin_users_menu")
     builder.button(text="🔄 Заявки на замену", callback_data="admin_replaces")
     builder.button(text="📨 Рассылка", callback_data="admin_broadcast")
+    builder.button(text="📊 Статистика", callback_data="admin_stats")
+    builder.button(text="📤 Экспорт БД", callback_data="admin_export")
+    builder.button(text="📥 Импорт БД", callback_data="admin_import")
     builder.adjust(2)
     return builder.as_markup()
 
