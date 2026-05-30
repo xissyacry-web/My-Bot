@@ -74,7 +74,7 @@ class BanMiddleware(BaseMiddleware):
             user_id = event.from_user.id
 
         import config
-        # Важно: админы не блокируются при выключенном боте
+        # Админы не блокируются при выключенном боте
         if not config.BOT_ACTIVE and user_id not in config.ADMIN_IDS:
             if isinstance(event, Message):
                 await event.answer("🔴 Бот временно отключён.")
