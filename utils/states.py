@@ -6,12 +6,6 @@ class ReplenishBalance(StatesGroup):
 class PromocodeInput(StatesGroup):
     code = State()
 
-class ReplaceRequestStates(StatesGroup):
-    phone_number = State()
-    date_time = State()
-    photos = State()
-    complaint = State()
-
 class BuyProduct(StatesGroup):
     product_id = State()
     amount = State()
@@ -64,9 +58,3 @@ class AdminUserBan(StatesGroup):
 
 class AdminBroadcast(StatesGroup):
     message = State()
-
-class AdminImport(StatesGroup):
-    file = State()
-
-class AdminReplaceReject(StatesGroup):
-    reason = State()
