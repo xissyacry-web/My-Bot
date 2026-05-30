@@ -8,12 +8,12 @@ from database.models import User, Product, Category, ReplaceRequest, Purchase, P
 from config import ADMIN_IDS, BOT_ACTIVE
 from utils.states import *
 from services.product_service import get_categories, get_products_by_category
-from sqlalchemy import select, func
-import os, sys
+from sqlalchemy import select, func, text
+import os, sys, sqlite3, shutil
 
 router = Router()
 
-VERSION = "v1.0.4"
+VERSION = "v1.0.5"
 
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
@@ -68,18 +68,38 @@ async def stats_show(callback: CallbackQuery):
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin_stats")]]))
 
-# ---------- ЭКСПОРТ / ИМПОРТ (с подтверждением) ----------
+# ---------- ЭКСПОРТ / ИМПОРТ (БЕЗОПАСНЫЙ) ----------
 @router.callback_query(F.data == "admin_export")
 async def export_db(callback: CallbackQuery):
+    async with AsyncSessionLocal() as session:
+        await session.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+        await session.commit()
     try:
-        await callback.message.answer_document(FSInputFile("bot.db"), caption="📤 Экспорт базы данных")
+        conn = sqlite3.connect("bot.db")
+        cur = conn.execute("SELECT COUNT(*) FROM users")
+        user_count = cur.fetchone()[0]
+        cur = conn.execute("SELECT COUNT(*) FROM promocodes")
+        promo_count = cur.fetchone()[0]
+        conn.close()
+        stat_text = f"👥 Пользователей: {user_count}\n🎁 Промокодов: {promo_count}"
+    except Exception as e:
+        stat_text = f"Ошибка проверки: {e}"
+    try:
+        await callback.message.answer_document(
+            FSInputFile("bot.db"),
+            caption=f"📤 Экспорт базы данных\n{stat_text}"
+        )
     except Exception as e:
         await callback.message.answer(f"Ошибка экспорта: {e}")
 
 @router.callback_query(F.data == "admin_import")
 async def import_start(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(
+    import config
+    config.BOT_ACTIVE = False
+    await callback.message.answer("🔴 Бот временно отключён для импорта.")
+    await callback.message.answer(
         "⚠️ Импорт полностью заменит текущую базу данных.\n"
+        "Будет создана резервная копия (backup.db).\n"
         "Отправьте файл bot.db или нажмите «Отмена».",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Отмена", callback_data="admin_back")]
@@ -94,8 +114,21 @@ async def import_file(message: Message, state: FSMContext):
         return
     file_id = message.document.file_id
     file = await message.bot.get_file(file_id)
-    await message.bot.download_file(file.file_path, "bot.db.new")
-    os.replace("bot.db.new", "bot.db")
+    temp_path = "bot.db.uploaded"
+    await message.bot.download_file(file.file_path, temp_path)
+    try:
+        conn = sqlite3.connect(temp_path)
+        conn.execute("SELECT 1 FROM users LIMIT 1")
+        conn.execute("SELECT 1 FROM promocodes LIMIT 1")
+        conn.close()
+    except Exception:
+        await message.answer("❌ Файл не является базой данных бота или повреждён.")
+        os.remove(temp_path)
+        return
+    if os.path.exists("bot.db"):
+        shutil.copy2("bot.db", "backup.db")
+        await message.answer("📦 Резервная копия сохранена как backup.db")
+    os.replace(temp_path, "bot.db")
     await message.answer("✅ База данных импортирована. Бот будет перезапущен...")
     sys.exit(0)
 
