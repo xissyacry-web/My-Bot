@@ -9,7 +9,7 @@ from database.models import Invoice, User
 from services.payment_service import check_pending_invoices
 from handlers.user_handlers import router as user_router
 from handlers.admin_handlers import router as admin_router
-from config import ADMIN_IDS, BOT_ACTIVE as CONFIG_BOT_ACTIVE
+from config import ADMIN_IDS, BOT_ACTIVE, TECH_MODE
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8961635368:AAGrLICFaRDceOFDa5RBIlY2274_DKtvs0k")
 ADMIN_IDS_STR = os.environ.get("ADMIN_IDS", "1073780833")
@@ -74,12 +74,12 @@ class BanMiddleware(BaseMiddleware):
             user_id = event.from_user.id
 
         import config
-        # Админы не блокируются при выключенном боте
-        if not config.BOT_ACTIVE and user_id not in config.ADMIN_IDS:
+        # Тех. режим
+        if config.TECH_MODE and user_id not in config.ADMIN_IDS:
             if isinstance(event, Message):
-                await event.answer("🔴 Бот временно отключён.")
+                await event.answer("🔴 Бот временно отключён для тех. работ.")
             elif isinstance(event, CallbackQuery):
-                await event.answer("Бот отключён.", show_alert=True)
+                await event.answer("Бот на тех. работах.", show_alert=True)
             return
 
         if user_id and user_id not in config.ADMIN_IDS:
