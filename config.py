@@ -5,3 +5,4 @@ DATABASE_URL = "sqlite+aiosqlite:///./bot.db"
 BOT_USERNAME = "XissyaLog_Bot"
 LOG_CHAT_ID = -1003816125421
 BOT_ACTIVE = True
+TECH_MODE = False   # новый флаг для тех. работ
