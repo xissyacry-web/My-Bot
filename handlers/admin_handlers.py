@@ -13,7 +13,7 @@ import os
 
 router = Router()
 
-VERSION = "v1.0.1"
+VERSION = "v1.0.3"
 
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
@@ -87,7 +87,7 @@ async def broadcast_exec(message: Message, state: FSMContext):
     await message.answer(f"📨 Рассылка завершена. Успешно: {success}, не доставлено: {fail}.")
     await state.clear()
 
-# ---------- ДОБАВЛЕНИЕ ТОВАРА (ПОЛНОСТЬЮ ИСПРАВЛЕНО) ----------
+# ---------- ДОБАВЛЕНИЕ ТОВАРА ----------
 @router.callback_query(F.data == "admin_add_product")
 async def add_prod(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as session:
@@ -165,7 +165,6 @@ async def ap_content(message: Message, state: FSMContext):
         if lines_count == 0:
             await message.answer("❌ Текст не может быть пустым. Отправьте хотя бы одну строку или '-'")
             return
-    # Проверка: если количество > 0, число строк должно совпадать
     if quantity > 0 and lines_count != quantity:
         await message.answer(f"❌ Вы указали количество {quantity}, но в тексте {lines_count} строк. Отправьте текст снова.")
         return
@@ -202,7 +201,7 @@ async def ap_file(message: Message, state: FSMContext):
     await message.answer(f"✅ Товар '{data['name']}' добавлен!")
     await state.clear()
 
-# ---------- ДОБАВЛЕНИЕ КАТЕГОРИИ (ИСПРАВЛЕНО) ----------
+# ---------- ДОБАВЛЕНИЕ КАТЕГОРИИ ----------
 @router.callback_query(F.data == "admin_add_category")
 async def add_cat(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("Введите название новой категории:")
@@ -225,7 +224,7 @@ async def cat_parent(message: Message, state: FSMContext):
             async with AsyncSessionLocal() as session:
                 if not await session.get(Category, pid):
                     await message.answer("❌ Родительская категория не найдена. Введите ID ещё раз или 0:")
-                    return   # состояние сохраняется, повторный ввод
+                    return
     except:
         await message.answer("Введите число")
         return
@@ -278,6 +277,7 @@ async def del_prod_exec(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Товар не найден")
     await state.clear()
 
+# ---------- УДАЛЕНИЕ КАТЕГОРИИ (БЕЗОПАСНОЕ) ----------
 @router.callback_query(F.data == "admin_delete_category")
 async def del_cat(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as session:
@@ -294,15 +294,23 @@ async def del_cat_exec(callback: CallbackQuery, state: FSMContext):
     cid = int(callback.data.split("_")[1])
     async with AsyncSessionLocal() as session:
         cat = await session.get(Category, cid)
-        if cat:
-            await session.delete(cat)
-            await session.commit()
-            await callback.message.edit_text("✅ Категория удалена")
-        else:
+        if not cat:
             await callback.answer("Категория не найдена")
+            await state.clear()
+            return
+        # Проверяем, есть ли подкатегории или товары
+        subcats = (await session.execute(select(Category).where(Category.parent_id == cid))).scalars().all()
+        products = (await session.execute(select(Product).where(Product.category_id == cid))).scalars().all()
+        if subcats or products:
+            await callback.message.edit_text("❌ Нельзя удалить категорию, в которой есть товары или подкатегории. Сначала удалите их.")
+            await state.clear()
+            return
+        await session.delete(cat)
+        await session.commit()
+        await callback.message.edit_text("✅ Категория удалена")
     await state.clear()
 
-# ---------- ПРОМОКОДЫ (ИСПРАВЛЕНО ЗАВИСАНИЕ) ----------
+# ---------- ПРОМОКОДЫ ----------
 @router.callback_query(F.data == "admin_promocodes")
 async def promo_menu(callback: CallbackQuery):
     from keyboards.inline import admin_promocodes_keyboard
@@ -399,7 +407,7 @@ async def promo_list(callback: CallbackQuery):
             inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin_promocodes")]]))
     await callback.answer()
 
-# ---------- ПОЛЬЗОВАТЕЛИ (ИЗМЕНЕНИЕ БАЛАНСА РАБОТАЕТ) ----------
+# ---------- ПОЛЬЗОВАТЕЛИ ----------
 @router.callback_query(F.data == "admin_users_menu")
 async def users_menu(callback: CallbackQuery):
     from keyboards.inline import admin_users_keyboard
@@ -450,17 +458,24 @@ async def user_bal_amount(message: Message, state: FSMContext):
         await message.answer("Введите число")
         return
     data = await state.get_data()
+    uid = data['user_id']
     async with AsyncSessionLocal() as session:
-        user = await session.get(User, data['user_id'])
+        user = await session.get(User, uid)
         if user:
             user.balance += amount
             await session.commit()
-            await message.answer(f"Баланс изменён. Текущий: {user.balance:.2f}$")
+            # Уведомляем пользователя
+            action = "пополнен" if amount >= 0 else "списан"
+            try:
+                await message.bot.send_message(uid, f"💰 Ваш баланс {action} на {abs(amount):.2f}$ администратором.\nТекущий баланс: {user.balance:.2f}$")
+            except:
+                pass
+            await message.answer(f"Баланс пользователя {uid} изменён. Текущий: {user.balance:.2f}$")
         else:
             await message.answer("Пользователь не найден.")
     await state.clear()
 
-# ---------- БАН (С ПРИЧИНОЙ) ----------
+# ---------- БАН (С УВЕДОМЛЕНИЕМ) ----------
 @router.callback_query(F.data == "user_ban")
 async def user_ban_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("Введите Telegram ID для бана/разбана:")
@@ -489,17 +504,25 @@ async def user_ban_exec(message: Message, state: FSMContext):
                 user.is_banned = False
                 user.ban_reason = None
                 st = "разбанен"
+                try:
+                    await message.bot.send_message(uid, "✅ Вы были разблокированы администратором.")
+                except:
+                    pass
             else:
                 user.is_banned = True
                 user.ban_reason = reason
                 st = "забанен"
+                try:
+                    await message.bot.send_message(uid, f"🚫 Вы заблокированы.\nПричина: {reason}")
+                except:
+                    pass
             await session.commit()
             await message.answer(f"Пользователь {uid} {st}.")
         else:
             await message.answer("Пользователь не найден.")
     await state.clear()
 
-# ---------- ОБРАБОТКА РАЗЖАЛОВАНИЙ (АДМИН) ----------
+# ---------- ОБРАБОТКА РАЗЖАЛОВАНИЙ ----------
 @router.callback_query(F.data.startswith("unban_approve_"))
 async def unban_approve(callback: CallbackQuery):
     req_id = int(callback.data.split("_")[2])
@@ -532,7 +555,7 @@ async def unban_reject(callback: CallbackQuery):
         await callback.message.edit_text(f"❌ Заявка #{req_id} отклонена.")
     await callback.answer()
 
-# ---------- ЗАМЕНЫ (АДМИН) ----------
+# ---------- ЗАМЕНЫ (ИСПРАВЛЕНО) ----------
 @router.callback_query(F.data == "admin_replaces")
 async def admin_replaces(callback: CallbackQuery):
     async with AsyncSessionLocal() as session:
@@ -573,7 +596,7 @@ async def app_replace(callback: CallbackQuery):
 async def rej_replace(callback: CallbackQuery, state: FSMContext):
     rid = int(callback.data.split("_")[2])
     await callback.message.answer("Введите причину отказа (без бана):")
-    await state.set_state(AdminReplaceReject.reason)   # новое состояние, не пересекается с баном
+    await state.set_state(AdminReplaceReject.reason)
     await state.update_data(req_id=rid)
     await callback.answer()
 
