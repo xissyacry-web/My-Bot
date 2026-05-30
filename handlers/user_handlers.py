@@ -13,7 +13,7 @@ from services.replace_service import create_replace_request
 from services.payment_service import create_invoice
 from services.log_service import log_purchase, log_register, log_refill, log_promo, log_replace
 from utils.states import ReplenishBalance, PromocodeInput, ReplaceRequestStates, BuyProduct, UnbanProcess
-from config import ADMIN_IDS, BOT_ACTIVE
+from config import ADMIN_IDS, BOT_ACTIVE, TECH_MODE
 
 router = Router()
 
@@ -31,7 +31,10 @@ async def clear_state_on_menu(message: Message, state: FSMContext):
 
 async def check_bot_active(message: Message):
     if not BOT_ACTIVE and message.from_user.id not in ADMIN_IDS:
-        await message.answer("🔴 Бот временно отключён. Попробуйте позже.")
+        await message.answer("🔴 Бот отключён.")
+        return False
+    if TECH_MODE and message.from_user.id not in ADMIN_IDS:
+        await message.answer("🔴 Бот временно отключён для тех. работ.")
         return False
     return True
 
@@ -67,6 +70,7 @@ async def show_all_products(message: Message, state: FSMContext):
         text = await get_all_products_text(session)
         await message.answer(text)
 
+# ---------- КАТЕГОРИИ ----------
 @router.callback_query(F.data.startswith("cat_"))
 async def category_selected(callback: CallbackQuery):
     cat_id = int(callback.data.split("_")[1])
@@ -106,9 +110,10 @@ async def back_to_categories(callback: CallbackQuery):
 # ---------- ПОКУПКА ----------
 @router.callback_query(F.data.startswith("buy_"))
 async def buy_start(callback: CallbackQuery, state: FSMContext):
-    if not BOT_ACTIVE:
-        await callback.answer("Бот отключён", show_alert=True)
-        return
+    if not BOT_ACTIVE and callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("Бот отключён", show_alert=True); return
+    if TECH_MODE and callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("Тех. работы", show_alert=True); return
     product_id = int(callback.data.split("_")[1])
     async with AsyncSessionLocal() as session:
         product = await session.get(Product, product_id)
@@ -276,7 +281,7 @@ async def promocode_apply(message: Message, state: FSMContext):
             await log_promo(message.bot, user_id, message.from_user.username, code, promo.bonus_amount)
     await state.clear()
 
-# ---------- ЗАМЕНА ----------
+# ---------- ЗАМЕНА (ПОЛНОСТЬЮ РАБОЧАЯ) ----------
 @router.message(F.text == "🔄 Замена")
 async def replace_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
