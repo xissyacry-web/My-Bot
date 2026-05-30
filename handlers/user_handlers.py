@@ -11,8 +11,9 @@ from services.user_service import get_user, create_user
 from services.product_service import get_categories, get_products_by_category, buy_product, get_all_products_text
 from services.replace_service import create_replace_request
 from services.payment_service import create_invoice
+from services.log_service import log_purchase, log_register, log_refill, log_promo, log_replace
 from utils.states import ReplenishBalance, PromocodeInput, ReplaceRequestStates, BuyProduct, UnbanProcess
-from config import ADMIN_IDS
+from config import ADMIN_IDS, BOT_ACTIVE
 
 router = Router()
 
@@ -28,27 +29,40 @@ async def clear_state_on_menu(message: Message, state: FSMContext):
     if current is not None:
         await state.clear()
 
+async def check_bot_active(message: Message):
+    if not BOT_ACTIVE:
+        await message.answer("🔴 Бот временно отключён. Попробуйте позже.")
+        return False
+    return True
+
+# ---------- /start ----------
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
-    await ensure_user(message.from_user.id, message.from_user.username)
+    if not await check_bot_active(message): return
+    async with AsyncSessionLocal() as session:
+        user = await get_user(session, message.from_user.id)
+        if not user:
+            await create_user(session, message.from_user.id, message.from_user.username)
+            await log_register(message.bot, message.from_user.id, message.from_user.username)
     await message.answer("🎉 Добро пожаловать!", reply_markup=main_menu())
 
+# ---------- МЕНЮ ----------
 @router.message(F.text == "📋 Меню")
 async def show_categories(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
-    await ensure_user(message.from_user.id, message.from_user.username)
+    if not await check_bot_active(message): return
     async with AsyncSessionLocal() as session:
         cats = await get_categories(session, parent_id=None)
         if cats:
             await message.answer("Выберите категорию:", reply_markup=categories_keyboard(cats))
         else:
-            await message.answer("Каталог пуст. Добавьте категории через админку.")
+            await message.answer("В каталоге пока нет товаров.")
 
 @router.message(F.text == "📦 Наличие товаров")
 async def show_all_products(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
-    await ensure_user(message.from_user.id, message.from_user.username)
+    if not await check_bot_active(message): return
     async with AsyncSessionLocal() as session:
         text = await get_all_products_text(session)
         await message.answer(text)
@@ -89,8 +103,12 @@ async def back_to_categories(callback: CallbackQuery):
             await callback.message.edit_text("Категорий нет")
     await callback.answer()
 
+# ---------- ПОКУПКА ----------
 @router.callback_query(F.data.startswith("buy_"))
 async def buy_start(callback: CallbackQuery, state: FSMContext):
+    if not BOT_ACTIVE:
+        await callback.answer("Бот отключён", show_alert=True)
+        return
     product_id = int(callback.data.split("_")[1])
     async with AsyncSessionLocal() as session:
         product = await session.get(Product, product_id)
@@ -109,6 +127,7 @@ async def buy_start(callback: CallbackQuery, state: FSMContext):
 
 @router.message(BuyProduct.amount)
 async def buy_amount(message: Message, state: FSMContext):
+    if not await check_bot_active(message): return
     try:
         amount = int(message.text)
         if amount <= 0:
@@ -126,10 +145,7 @@ async def buy_amount(message: Message, state: FSMContext):
         result = await buy_product(session, user_id, product_id, amount)
         if result["success"]:
             qleft = result.get('quantity_left', 0)
-            if isinstance(qleft, int):
-                qleft_str = f"{qleft} шт." if qleft > 0 else "0 шт."
-            else:
-                qleft_str = "∞"
+            qleft_str = f"{qleft} шт." if isinstance(qleft, int) and qleft > 0 else ("∞" if qleft == 0 else qleft)
             text = (f"✅ Куплено {amount} шт.\n"
                     f"Товар: {result['product_name']}\n"
                     f"Остаток: {result['balance']:.2f}$\n"
@@ -142,13 +158,16 @@ async def buy_amount(message: Message, state: FSMContext):
                     await message.answer_document(result["file_id"])
                 except:
                     pass
+            await log_purchase(message.bot, user_id, message.from_user.username, result['product_name'], amount, result.get('price', 0))
         else:
             await message.answer(f"❌ {result['error']}")
     await state.clear()
 
+# ---------- ПРОФИЛЬ ----------
 @router.message(F.text == "👤 Профиль")
 async def profile(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
+    if not await check_bot_active(message): return
     user = await ensure_user(message.from_user.id, message.from_user.username)
     days = (datetime.utcnow() - user.registered_at).days
     text = (f"👤 Профиль\n"
@@ -158,15 +177,17 @@ async def profile(message: Message, state: FSMContext):
             f"Регистрация: {user.registered_at.strftime('%d.%m.%Y')} ({days} дн.)")
     await message.answer(text)
 
+# ---------- ПОПОЛНЕНИЕ ----------
 @router.message(F.text == "💳 Пополнить баланс")
 async def ask_amount(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
-    await ensure_user(message.from_user.id, message.from_user.username)
+    if not await check_bot_active(message): return
     await message.answer("Введите сумму пополнения в $:")
     await state.set_state(ReplenishBalance.amount)
 
 @router.message(ReplenishBalance.amount)
 async def process_amount(message: Message, state: FSMContext):
+    if not await check_bot_active(message): return
     try:
         amount = float(message.text.replace(',', '.'))
         if amount <= 0:
@@ -206,6 +227,7 @@ async def check_payment(callback: CallbackQuery):
             user.balance += inv.amount
             await session.commit()
             await callback.message.answer(f"✅ Зачислено {inv.amount:.2f}$")
+            await log_refill(callback.bot, user_id, callback.from_user.username, inv.amount)
         elif data and data['status'] == 'expired':
             inv.status = 'expired'
             await session.commit()
@@ -214,10 +236,11 @@ async def check_payment(callback: CallbackQuery):
             await callback.answer("Оплата не поступила.", show_alert=True)
     await callback.answer()
 
+# ---------- ПРОМОКОДЫ ----------
 @router.message(F.text == "🎁 Промокод")
 async def promocode_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
-    await ensure_user(message.from_user.id, message.from_user.username)
+    if not await check_bot_active(message): return
     await message.answer("Введите промокод:")
     await state.set_state(PromocodeInput.code)
 
@@ -232,13 +255,11 @@ async def promocode_apply(message: Message, state: FSMContext):
             await state.clear()
             return
         promo = await session.get(Promocode, code)
-
         used = [c.strip() for c in user.used_promocodes.split(',') if c.strip()]
         if code in used:
             await message.answer("❌ Вы уже использовали этот промокод.")
             await state.clear()
             return
-
         if not promo or not promo.is_active:
             await message.answer("❌ Промокод недействителен.")
         elif promo.expires_at and promo.expires_at < datetime.utcnow():
@@ -252,13 +273,14 @@ async def promocode_apply(message: Message, state: FSMContext):
             user.used_promocodes = ','.join(used)
             await session.commit()
             await message.answer(f"🎁 Промокод активирован! +{promo.bonus_amount:.2f}$")
+            await log_promo(message.bot, user_id, message.from_user.username, code, promo.bonus_amount)
     await state.clear()
 
-# ---------- ЗАМЕНА (РАБОЧАЯ ВЕРСИЯ) ----------
+# ---------- ЗАМЕНА ----------
 @router.message(F.text == "🔄 Замена")
 async def replace_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
-    await ensure_user(message.from_user.id, message.from_user.username)
+    if not await check_bot_active(message): return
     async with AsyncSessionLocal() as session:
         exists = (await session.execute(
             select(Purchase).where(Purchase.user_id == message.from_user.id, Purchase.status == 'completed')
@@ -290,16 +312,19 @@ async def replace_photo(message: Message, state: FSMContext):
     await state.update_data(photos=photos)
     await message.answer(f"Фото {len(photos)} получено. Отправьте ещё или напишите 'готово'.")
 
-@router.message(ReplaceRequestStates.photos, F.text == "готово")
-async def replace_photos_done(message: Message, state: FSMContext):
-    data = await state.get_data()
-    photos = data.get('photos', [])
-    if not photos:
-        await message.answer("Вы не отправили ни одного фото. Отправьте фото или напишите '-', если их нет.")
-        return
-    await state.update_data(photos=photos)
-    await message.answer("Опишите вашу жалобу текстом:")
-    await state.set_state(ReplaceRequestStates.complaint)
+@router.message(ReplaceRequestStates.photos, F.text)
+async def replace_photos_text_handler(message: Message, state: FSMContext):
+    if message.text.strip().lower() == "готово":
+        data = await state.get_data()
+        photos = data.get('photos', [])
+        if not photos:
+            await message.answer("Вы не отправили ни одного фото. Отправьте фото или напишите '-', если их нет.")
+            return
+        await state.update_data(photos=photos)
+        await message.answer("Опишите вашу жалобу текстом:")
+        await state.set_state(ReplaceRequestStates.complaint)
+    else:
+        await message.answer("Отправьте фото или напишите 'готово' для завершения.")
 
 @router.message(ReplaceRequestStates.complaint)
 async def replace_complaint(message: Message, state: FSMContext):
@@ -335,6 +360,12 @@ async def replace_complaint(message: Message, state: FSMContext):
                 print(f"Ошибка уведомления админа: {e}")
     await message.answer("✅ Заявка на замену отправлена. Ожидайте решения администратора.")
     await state.clear()
+
+# ---------- ПОДДЕРЖКА ----------
+@router.message(F.text == "🆘 Поддержка")
+async def support(message: Message, state: FSMContext):
+    await clear_state_on_menu(message, state)
+    await message.answer("Свяжитесь с поддержкой: @Xissya")
 
 # ---------- РАЗЖАЛОВАНИЕ (UNBAN REQUEST) ----------
 @router.callback_query(F.data == "unban_request")
