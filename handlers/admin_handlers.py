@@ -5,7 +5,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from datetime import datetime, timedelta
 from database.database import AsyncSessionLocal
 from database.models import User, Product, Category, ReplaceRequest, Purchase, Promocode, UnbanRequest, Invoice
-from config import ADMIN_IDS, BOT_ACTIVE
+from config import ADMIN_IDS, BOT_ACTIVE, TECH_MODE
 from utils.states import *
 from services.product_service import get_categories, get_products_by_category
 from sqlalchemy import select, func, text
@@ -13,7 +13,7 @@ import os, sys, sqlite3, shutil
 
 router = Router()
 
-VERSION = "v1.0.5"
+VERSION = "v1.0.6"
 
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
@@ -39,6 +39,16 @@ async def toggle_bot(callback: CallbackQuery):
     state = "выключен 🔴" if not config.BOT_ACTIVE else "включен 🟢"
     from keyboards.inline import admin_main_keyboard
     await callback.message.edit_text(f"🛠 Админ-панель {VERSION}\n\nБот {state}.", reply_markup=admin_main_keyboard())
+    await callback.answer()
+
+# ---------- ТЕХ. РЕЖИМ ----------
+@router.callback_query(F.data == "admin_toggle_tech")
+async def toggle_tech(callback: CallbackQuery):
+    import config
+    config.TECH_MODE = not config.TECH_MODE
+    state = "включены 🔧" if config.TECH_MODE else "выключены"
+    from keyboards.inline import admin_main_keyboard
+    await callback.message.edit_text(f"🛠 Админ-панель {VERSION}\n\nТех. работы {state}.", reply_markup=admin_main_keyboard())
     await callback.answer()
 
 # ---------- СТАТИСТИКА ----------
@@ -94,12 +104,8 @@ async def export_db(callback: CallbackQuery):
 
 @router.callback_query(F.data == "admin_import")
 async def import_start(callback: CallbackQuery, state: FSMContext):
-    import config
-    config.BOT_ACTIVE = False
-    await callback.message.answer("🔴 Бот временно отключён для импорта.")
-    await callback.message.answer(
-        "⚠️ Импорт полностью заменит текущую базу данных.\n"
-        "Будет создана резервная копия (backup.db).\n"
+    await callback.message.edit_text(
+        "⚠️ Рекомендуется включить тех. работы перед импортом.\n"
         "Отправьте файл bot.db или нажмите «Отмена».",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Отмена", callback_data="admin_back")]
