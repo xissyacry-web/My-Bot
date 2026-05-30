@@ -11,6 +11,7 @@ class User(Base):
     balance = Column(Float, default=0.0)
     registered_at = Column(DateTime, default=datetime.utcnow)
     is_banned = Column(Boolean, default=False)
+    ban_reason = Column(Text, nullable=True)           # причина бана
     used_promocodes = Column(Text, default="")
 
 class Category(Base):
@@ -28,7 +29,7 @@ class Product(Base):
     name = Column(String)
     price = Column(Float)
     quantity = Column(Integer, default=0)
-    content = Column(Text, nullable=True)       # многострочный текст, каждая строка = 1 единица
+    content = Column(Text, nullable=True)
     file_id = Column(String, nullable=True)
     is_available = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -58,8 +59,9 @@ class ReplaceRequest(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.user_id'))
     purchase_id = Column(Integer, ForeignKey('purchases.id'))
-    phone_number = Column(String)
-    date_time = Column(String)
+    log_number = Column(String)                    # номер лога
+    photos = Column(Text)                          # список file_id через запятую
+    complaint = Column(Text)                       # текст жалобы
     status = Column(String, default='pending')
     admin_comment = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -71,4 +73,13 @@ class Invoice(Base):
     invoice_id = Column(Integer)
     amount = Column(Float)
     status = Column(String, default='active')
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class UnbanRequest(Base):
+    __tablename__ = 'unban_requests'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'))
+    photos = Column(Text)                          # file_id через запятую
+    description = Column(Text)
+    status = Column(String, default='pending')
     created_at = Column(DateTime, default=datetime.utcnow)
