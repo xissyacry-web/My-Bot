@@ -30,7 +30,7 @@ async def clear_state_on_menu(message: Message, state: FSMContext):
         await state.clear()
 
 async def check_bot_active(message: Message):
-    if not BOT_ACTIVE:
+    if not BOT_ACTIVE and message.from_user.id not in ADMIN_IDS:
         await message.answer("🔴 Бот временно отключён. Попробуйте позже.")
         return False
     return True
