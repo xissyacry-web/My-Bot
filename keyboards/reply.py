@@ -5,7 +5,8 @@ def main_menu():
         keyboard=[
             [KeyboardButton(text="📋 Меню"), KeyboardButton(text="👤 Профиль")],
             [KeyboardButton(text="💳 Пополнить баланс"), KeyboardButton(text="📦 Наличие товаров")],
-            [KeyboardButton(text="🔄 Замена"), KeyboardButton(text="🎁 Промокод")]
+            [KeyboardButton(text="🔄 Замена"), KeyboardButton(text="🎁 Промокод")],
+            [KeyboardButton(text="🆘 Поддержка")]                       # новая кнопка
         ],
         resize_keyboard=True
     )
