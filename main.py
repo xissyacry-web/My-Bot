@@ -1,15 +1,24 @@
 import asyncio
 import os
+import sys
 from aiogram import Bot, Dispatcher
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiohttp import web
 from database.database import init_db, AsyncSessionLocal
 from database.models import Invoice, User
 from services.payment_service import check_pending_invoices
 from handlers.user_handlers import router as user_router
 from handlers.admin_handlers import router as admin_router
-from config import BOT_TOKEN, ADMIN_IDS  # Оставляем, но токены будем передавать через переменные окружения
+from config import ADMIN_IDS
 
-# ---------- HTTP-сервер для поддержания активности ----------
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8961635368:AAGrLICFaRDceOFDa5RBIlY2274_DKtvs0k")
+ADMIN_IDS_STR = os.environ.get("ADMIN_IDS", "1073780833")
+ADMIN_IDS = [int(x.strip()) for x in ADMIN_IDS_STR.split(",") if x.strip()]
+
+if not BOT_TOKEN:
+    print("❌ BOT_TOKEN не задан!")
+    sys.exit(1)
+
 async def handle(request):
     return web.Response(text="Bot is running")
 
@@ -21,9 +30,8 @@ async def start_web_server():
     port = int(os.environ.get("PORT", 8000))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    print(f"Web server started on port {port}")
+    print(f"✅ Web server started on port {port}")
 
-# ---------- Фоновая проверка платежей ----------
 async def payment_checker(bot: Bot):
     while True:
         try:
@@ -43,10 +51,10 @@ async def payment_checker(bot: Bot):
                             user = await session.get(User, inv.user_id)
                             if user:
                                 user.balance += inv.amount
-                                await bot.send_message(
-                                    inv.user_id,
-                                    f"✅ Ваш платёж на {inv.amount} USDT поступил! Баланс обновлён."
-                                )
+                                try:
+                                    await bot.send_message(inv.user_id, f"✅ Платёж на {inv.amount} USDT зачислен!")
+                                except:
+                                    pass
                         elif new_status == "expired":
                             inv.status = "expired"
                     await session.commit()
@@ -54,27 +62,54 @@ async def payment_checker(bot: Bot):
             print(f"Payment checker error: {e}")
         await asyncio.sleep(10)
 
+# ---------- Middleware для блокировки ----------
+from aiogram import BaseMiddleware
+from aiogram.types import TelegramObject
+
+class BanMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event: TelegramObject, data: dict):
+        user_id = None
+        if isinstance(event, Message):
+            user_id = event.from_user.id
+        elif isinstance(event, CallbackQuery):
+            user_id = event.from_user.id
+
+        if user_id and user_id not in ADMIN_IDS:
+            async with AsyncSessionLocal() as session:
+                user = await session.get(User, user_id)
+                if user and user.is_banned:
+                    if isinstance(event, Message):
+                        await event.answer(
+                            f"🚫 Вы заблокированы.\nПричина: {user.ban_reason or 'не указана'}",
+                            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="Разжаловать: Да", callback_data="unban_request"),
+                                 InlineKeyboardButton(text="Нет", callback_data="unban_ignore")]
+                            ])
+                        )
+                    elif isinstance(event, CallbackQuery):
+                        await event.answer("Вы заблокированы.", show_alert=True)
+                    return
+        return await handler(event, data)
+
 async def main():
-    # Инициализация БД
+    print("🚀 Запуск бота...")
     await init_db()
+    print("✅ База данных готова")
 
-    # Токены берём из переменных окружения (Render их передаст)
-    bot_token = os.environ.get("BOT_TOKEN", BOT_TOKEN)
-    admin_ids = os.environ.get("ADMIN_IDS", ",".join(map(str, ADMIN_IDS)))
-    # Если нужно динамически обновить ADMIN_IDS из строки, можно здесь распарсить
     import config
-    config.BOT_TOKEN = bot_token
-    config.ADMIN_IDS = [int(x) for x in admin_ids.split(",") if x]
+    config.ADMIN_IDS = ADMIN_IDS
 
-    bot = Bot(token=bot_token)
+    bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
+    dp.update.middleware(BanMiddleware())
+
     dp.include_router(user_router)
     dp.include_router(admin_router)
 
-    # Запускаем веб-сервер и фоновую проверку параллельно
     asyncio.create_task(start_web_server())
     asyncio.create_task(payment_checker(bot))
 
+    print("✅ Бот запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
