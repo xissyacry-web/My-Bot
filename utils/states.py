@@ -7,12 +7,19 @@ class PromocodeInput(StatesGroup):
     code = State()
 
 class ReplaceRequestStates(StatesGroup):
-    phone_number = State()
-    date_time = State()
+    log_number = State()
+    photos = State()          # сбор фото
+    complaint = State()
 
 class BuyProduct(StatesGroup):
     product_id = State()
     amount = State()
+
+class UnbanProcess(StatesGroup):
+    waiting_photos = State()
+    waiting_done = State()
+    waiting_description = State()
+    confirm = State()
 
 class AdminAddProduct(StatesGroup):
     category_id = State()
@@ -42,6 +49,17 @@ class AdminPromoDelete(StatesGroup):
 
 class AdminUserSearch(StatesGroup):
     user_id = State()
+
+class AdminUserBalance(StatesGroup):
+    user_id = State()
+    amount = State()
+
+class AdminUserBan(StatesGroup):
+    user_id = State()
+    reason = State()
+
+class AdminBroadcast(StatesGroup):
+    message = State()
 
 class AdminUserBalance(StatesGroup):
     user_id = State()
