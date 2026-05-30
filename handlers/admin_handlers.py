@@ -13,7 +13,7 @@ import os, sys
 
 router = Router()
 
-VERSION = "v1.0.3"
+VERSION = "v1.0.4"
 
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
@@ -29,6 +29,16 @@ async def admin_panel(message: Message):
 async def back(callback: CallbackQuery):
     from keyboards.inline import admin_main_keyboard
     await callback.message.edit_text(f"🛠 Админ-панель {VERSION}", reply_markup=admin_main_keyboard())
+    await callback.answer()
+
+# ---------- ВКЛЮЧЕНИЕ / ВЫКЛЮЧЕНИЕ БОТА ----------
+@router.callback_query(F.data == "admin_toggle_bot")
+async def toggle_bot(callback: CallbackQuery):
+    import config
+    config.BOT_ACTIVE = not config.BOT_ACTIVE
+    state = "выключен 🔴" if not config.BOT_ACTIVE else "включен 🟢"
+    from keyboards.inline import admin_main_keyboard
+    await callback.message.edit_text(f"🛠 Админ-панель {VERSION}\n\nБот {state}.", reply_markup=admin_main_keyboard())
     await callback.answer()
 
 # ---------- СТАТИСТИКА ----------
@@ -89,19 +99,6 @@ async def import_file(message: Message, state: FSMContext):
     await message.answer("✅ База данных импортирована. Бот будет перезапущен...")
     sys.exit(0)
 
-# ---------- ВКЛЮЧЕНИЕ / ВЫКЛЮЧЕНИЕ БОТА ----------
-@router.callback_query(F.data == "admin_toggle_bot")
-async def toggle_bot(callback: CallbackQuery):
-    import config
-    config.BOT_ACTIVE = not config.BOT_ACTIVE
-    state = "выключен 🔴" if not config.BOT_ACTIVE else "включен 🟢"
-    # Обновляем глобальную переменную, если используется в других модулях
-    from config import BOT_ACTIVE as bot_active
-    await callback.message.edit_text(f"Бот {state}.", reply_markup=InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]]
-    ))
-    await callback.answer()
-
 # ---------- РАССЫЛКА ----------
 @router.callback_query(F.data == "admin_broadcast")
 async def broadcast_start(callback: CallbackQuery, state: FSMContext):
@@ -119,7 +116,6 @@ async def broadcast_exec(message: Message, state: FSMContext):
             success += 1
         except:
             fail += 1
-    # Лог рассылки
     from services.log_service import log_broadcast
     await log_broadcast(message.bot, message.from_user.id, message.text, success, fail)
     await message.answer(f"📨 Рассылка завершена. Успешно: {success}, не доставлено: {fail}.")
