@@ -1,17 +1,17 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
 from database.database import AsyncSessionLocal
-from database.models import User, Invoice, Promocode, Purchase, Product
+from database.models import User, Invoice, Promocode, Purchase, Product, ReplaceRequest, UnbanRequest
 from keyboards.reply import main_menu
 from keyboards.inline import categories_keyboard, products_keyboard, payment_keyboard
 from services.user_service import get_user, create_user
 from services.product_service import get_categories, get_products_by_category, buy_product, get_all_products_text
 from services.replace_service import create_replace_request
 from services.payment_service import create_invoice
-from utils.states import ReplenishBalance, PromocodeInput, ReplaceRequestStates, BuyProduct
+from utils.states import ReplenishBalance, PromocodeInput, ReplaceRequestStates, BuyProduct, UnbanProcess
 from config import ADMIN_IDS
 
 router = Router()
@@ -28,12 +28,14 @@ async def clear_state_on_menu(message: Message, state: FSMContext):
     if current is not None:
         await state.clear()
 
+# ---------- /start ----------
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
     await ensure_user(message.from_user.id, message.from_user.username)
     await message.answer("🎉 Добро пожаловать!", reply_markup=main_menu())
 
+# ---------- МЕНЮ ----------
 @router.message(F.text == "📋 Меню")
 async def show_categories(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
@@ -45,6 +47,7 @@ async def show_categories(message: Message, state: FSMContext):
         else:
             await message.answer("Каталог пуст. Добавьте категории через админку.")
 
+# ---------- Наличие товаров ----------
 @router.message(F.text == "📦 Наличие товаров")
 async def show_all_products(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
@@ -53,6 +56,7 @@ async def show_all_products(message: Message, state: FSMContext):
         text = await get_all_products_text(session)
         await message.answer(text)
 
+# ---------- Выбор категории ----------
 @router.callback_query(F.data.startswith("cat_"))
 async def category_selected(callback: CallbackQuery):
     cat_id = int(callback.data.split("_")[1])
@@ -87,6 +91,7 @@ async def back_to_categories(callback: CallbackQuery):
             await callback.message.edit_text("Категорий нет")
     await callback.answer()
 
+# ---------- ПОКУПКА ----------
 @router.callback_query(F.data.startswith("buy_"))
 async def buy_start(callback: CallbackQuery, state: FSMContext):
     product_id = int(callback.data.split("_")[1])
@@ -138,6 +143,7 @@ async def buy_amount(message: Message, state: FSMContext):
             await message.answer(f"❌ {result['error']}")
     await state.clear()
 
+# ---------- ПРОФИЛЬ ----------
 @router.message(F.text == "👤 Профиль")
 async def profile(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
@@ -150,6 +156,7 @@ async def profile(message: Message, state: FSMContext):
             f"Регистрация: {user.registered_at.strftime('%d.%m.%Y')} ({days} дн.)")
     await message.answer(text)
 
+# ---------- ПОПОЛНЕНИЕ ----------
 @router.message(F.text == "💳 Пополнить баланс")
 async def ask_amount(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
@@ -206,6 +213,7 @@ async def check_payment(callback: CallbackQuery):
             await callback.answer("Оплата не поступила.", show_alert=True)
     await callback.answer()
 
+# ---------- ПРОМОКОДЫ ----------
 @router.message(F.text == "🎁 Промокод")
 async def promocode_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
@@ -246,51 +254,209 @@ async def promocode_apply(message: Message, state: FSMContext):
             await message.answer(f"🎁 Промокод активирован! +{promo.bonus_amount:.2f}$")
     await state.clear()
 
+# ---------- ЗАМЕНА (НОВАЯ) ----------
 @router.message(F.text == "🔄 Замена")
 async def replace_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
-    user = await ensure_user(message.from_user.id, message.from_user.username)
+    await ensure_user(message.from_user.id, message.from_user.username)
     async with AsyncSessionLocal() as session:
-        from sqlalchemy import select
         exists = (await session.execute(
             select(Purchase).where(Purchase.user_id == message.from_user.id, Purchase.status == 'completed')
         )).first()
         if not exists:
             await message.answer("⚠️ Нет завершённых покупок.")
             return
-    await message.answer("📱 Введите номер телефона:")
-    await state.set_state(ReplaceRequestStates.phone_number)
+    await message.answer("Введите номер лога:")
+    await state.set_state(ReplaceRequestStates.log_number)
 
-@router.message(ReplaceRequestStates.phone_number)
-async def replace_phone(message: Message, state: FSMContext):
-    await state.update_data(phone_number=message.text)
-    await message.answer("📅 Введите дату и время (пример: 25.03.2025 14:30):")
-    await state.set_state(ReplaceRequestStates.date_time)
+@router.message(ReplaceRequestStates.log_number)
+async def replace_log(message: Message, state: FSMContext):
+    await state.update_data(log_number=message.text)
+    await message.answer("Теперь отправляйте фото по одному. Когда закончите, напишите 'готово'.")
+    await state.set_state(ReplaceRequestStates.photos)
+    await state.update_data(photos=[])
 
-@router.message(ReplaceRequestStates.date_time)
-async def replace_date(message: Message, state: FSMContext):
+@router.message(ReplaceRequestStates.photos, F.photo)
+async def replace_photo(message: Message, state: FSMContext):
     data = await state.get_data()
-    phone = data['phone_number']
+    photos = data.get('photos', [])
+    photos.append(message.photo[-1].file_id)
+    await state.update_data(photos=photos)
+    await message.answer(f"Фото {len(photos)} получено. Можете отправить ещё или напишите 'готово'.")
+
+@router.message(ReplaceRequestStates.photos, F.text == "готово")
+async def replace_photos_done(message: Message, state: FSMContext):
+    data = await state.get_data()
+    photos = data.get('photos', [])
+    if not photos:
+        await message.answer("Вы не отправили ни одного фото. Отправьте фото или напишите '-', если их нет.")
+        return
+    await state.update_data(photos=photos)
+    await message.answer("Теперь опишите вашу жалобу текстом:")
+    await state.set_state(ReplaceRequestStates.complaint)
+
+@router.message(ReplaceRequestStates.photos)
+async def replace_photos_text(message: Message, state: FSMContext):
+    # Если не фото и не "готово", подсказываем
+    await message.answer("Отправьте фото или напишите 'готово' для завершения.")
+
+@router.message(ReplaceRequestStates.complaint)
+async def replace_complaint(message: Message, state: FSMContext):
+    complaint = message.text
+    data = await state.get_data()
+    log_number = data['log_number']
+    photos = data.get('photos', [])
+    photo_str = ','.join(photos) if photos else None
+
     async with AsyncSessionLocal() as session:
-        try:
-            req = await create_replace_request(session, message.from_user.id, phone, message.text)
-        except ValueError as e:
-            await message.answer(f"❌ {e}")
+        # Получаем последнюю завершённую покупку
+        from sqlalchemy import select as sql_select
+        purchase = (await session.execute(
+            sql_select(Purchase).where(Purchase.user_id == message.from_user.id, Purchase.status == 'completed')
+            .order_by(Purchase.purchased_at.desc()).limit(1)
+        )).scalar_one_or_none()
+        if not purchase:
+            await message.answer("Ошибка: не найдена завершённая покупка.")
             await state.clear()
             return
-        if not ADMIN_IDS:
-            await message.answer("❌ Администраторы не настроены.")
-            await state.clear()
-            return
+        req = ReplaceRequest(
+            user_id=message.from_user.id,
+            purchase_id=purchase.id,
+            log_number=log_number,
+            photos=photo_str,
+            complaint=complaint
+        )
+        session.add(req)
+        await session.commit()
+        # Уведомляем админов
         for admin_id in ADMIN_IDS:
             try:
-                await message.bot.send_message(admin_id,
-                    f"🔄 Заявка на замену #{req.id}\nПользователь: @{message.from_user.username} ({message.from_user.id})\nТелефон: {phone}\nДата: {message.text}",
+                text = (f"🔄 Заявка на замену #{req.id}\n"
+                        f"Пользователь: @{message.from_user.username} ({message.from_user.id})\n"
+                        f"Номер лога: {log_number}\n"
+                        f"Жалоба: {complaint}")
+                if photo_str:
+                    media = [InputMediaPhoto(media=pid) for pid in photo_str.split(',')]
+                    await message.bot.send_media_group(admin_id, media)
+                await message.bot.send_message(admin_id, text,
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve_replace_{req.id}"),
                          InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_replace_{req.id}")]
                     ]))
             except Exception as e:
-                print(f"Не удалось уведомить админа {admin_id}: {e}")
-    await message.answer("✅ Заявка на замену отправлена.")
+                print(f"Ошибка уведомления админа {admin_id}: {e}")
+    await message.answer("✅ Заявка на замену отправлена. Ожидайте решения администратора.")
     await state.clear()
+
+# ---------- РАЗЖАЛОВАНИЕ (UNBAN REQUEST) ----------
+@router.callback_query(F.data == "unban_request")
+async def unban_request(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    # Проверка, забанен ли пользователь вообще
+    async with AsyncSessionLocal() as session:
+        user = await session.get(User, user_id)
+        if not user or not user.is_banned:
+            await callback.answer("Вы не заблокированы!", show_alert=True)
+            return
+    await callback.message.answer("Начинаем процесс разжалования.\nОтправьте фото (по одному). Если фото нет, напишите '-'")
+    await state.set_state(UnbanProcess.waiting_photos)
+    await state.update_data(photos=[])
+    await callback.answer()
+
+@router.message(UnbanProcess.waiting_photos, F.photo)
+async def unban_photo(message: Message, state: FSMContext):
+    data = await state.get_data()
+    photos = data.get('photos', [])
+    photos.append(message.photo[-1].file_id)
+    await state.update_data(photos=photos)
+    await message.answer(f"Фото {len(photos)} получено. Отправьте ещё или напишите 'готово'.")
+
+@router.message(UnbanProcess.waiting_photos, F.text)
+async def unban_photo_text(message: Message, state: FSMContext):
+    if message.text.strip().lower() == "готово":
+        data = await state.get_data()
+        photos = data.get('photos', [])
+        if not photos:
+            await message.answer("Вы не отправили ни одного фото. Отправьте фото или напишите '-' (если фото нет).")
+            return
+        await state.update_data(photos=photos)
+        await message.answer("Сколько фото вы отправили (для проверки)? Напишите число или 'готово', если всё верно.")
+        await state.set_state(UnbanProcess.waiting_done)
+    elif message.text.strip() == "-":
+        await state.update_data(photos=[])
+        await message.answer("Фото не приложены. Теперь опишите вашу жалобу текстом:")
+        await state.set_state(UnbanProcess.waiting_description)
+    else:
+        await message.answer("Отправьте фото или напишите 'готово'.")
+
+@router.message(UnbanProcess.waiting_done)
+async def unban_count(message: Message, state: FSMContext):
+    data = await state.get_data()
+    photos = data.get('photos', [])
+    if message.text.strip().lower() == "готово":
+        await message.answer(f"Принято {len(photos)} фото. Теперь опишите вашу жалобу текстом:")
+        await state.set_state(UnbanProcess.waiting_description)
+    else:
+        try:
+            count = int(message.text)
+            if count != len(photos):
+                await message.answer(f"Вы отправили {len(photos)} фото, а указали {count}. Отправьте ещё фото или напишите 'готово' ещё раз.")
+                return
+            await message.answer(f"Верно, {count} фото. Теперь опишите вашу жалобу текстом:")
+            await state.set_state(UnbanProcess.waiting_description)
+        except:
+            await message.answer("Введите число или 'готово'.")
+
+@router.message(UnbanProcess.waiting_description)
+async def unban_description(message: Message, state: FSMContext):
+    description = message.text
+    await state.update_data(description=description)
+    await message.answer("Проверьте ваши данные. Отправить разжалование?",
+                         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                             [InlineKeyboardButton(text="Отправить", callback_data="unban_confirm"),
+                              InlineKeyboardButton(text="Отмена", callback_data="unban_cancel")]
+                         ]))
+    await state.set_state(UnbanProcess.confirm)
+
+@router.callback_query(UnbanProcess.confirm, F.data == "unban_confirm")
+async def unban_confirm(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    photos = data.get('photos', [])
+    description = data.get('description', '-')
+    user_id = callback.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        req = UnbanRequest(
+            user_id=user_id,
+            photos=','.join(photos) if photos else None,
+            description=description
+        )
+        session.add(req)
+        await session.commit()
+        # Уведомить админов
+        for admin_id in ADMIN_IDS:
+            try:
+                if photos:
+                    media = [InputMediaPhoto(media=pid) for pid in photos]
+                    await callback.bot.send_media_group(admin_id, media)
+                await callback.bot.send_message(admin_id,
+                    f"🔓 Заявка на разжалование #{req.id}\n"
+                    f"Пользователь: @{callback.from_user.username} ({user_id})\n"
+                    f"Жалоба: {description}",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="✅ Одобрить", callback_data=f"unban_approve_{req.id}"),
+                         InlineKeyboardButton(text="❌ Отклонить", callback_data=f"unban_reject_{req.id}")]
+                    ]))
+            except Exception as e:
+                print(f"Ошибка уведомления админа: {e}")
+    await callback.message.answer("Заявка на разжалование отправлена администратору.")
+    await state.clear()
+
+@router.callback_query(UnbanProcess.confirm, F.data == "unban_cancel")
+async def unban_cancel(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("Разжалование отменено.")
+    await state.clear()
+
+@router.callback_query(F.data == "unban_ignore")
+async def unban_ignore(callback: CallbackQuery):
+    await callback.answer("Ок")
