@@ -1,6 +1,6 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from config import BOT_ACTIVE
+from config import BOT_ACTIVE, TECH_MODE
 
 def categories_keyboard(categories):
     builder = InlineKeyboardBuilder()
@@ -39,6 +39,10 @@ def admin_main_keyboard():
     builder.button(
         text="🔴 Выключить бота" if BOT_ACTIVE else "🟢 Включить бота",
         callback_data="admin_toggle_bot"
+    )
+    builder.button(
+        text="🔧 Тех. работы: ВКЛ" if TECH_MODE else "🔧 Тех. работы: ВЫКЛ",
+        callback_data="admin_toggle_tech"
     )
     builder.adjust(2)
     return builder.as_markup()
