@@ -1,51 +1,78 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from datetime import datetime, timedelta
 from database.database import AsyncSessionLocal
-from database.models import User, Product, Category, ReplaceRequest, Purchase, Promocode, UnbanRequest
+from database.models import User, Product, Category, ReplaceRequest, Purchase, Promocode, UnbanRequest, Invoice
 from config import ADMIN_IDS
 from utils.states import *
 from services.product_service import get_categories, get_products_by_category
-from sqlalchemy import select
+from sqlalchemy import select, func
+import os, tempfile, json, aiofiles
 
 router = Router()
+
+VERSION = "v1.0.1"
 
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
+# ---------- ГЛАВНОЕ МЕНЮ АДМИНА ----------
 @router.message(F.text == "/admin")
 async def admin_panel(message: Message):
     if not is_admin(message.from_user.id): return
     from keyboards.inline import admin_main_keyboard
-    await message.answer("🛠 Админ-панель:", reply_markup=admin_main_keyboard())
+    await message.answer(f"🛠 Админ-панель {VERSION}", reply_markup=admin_main_keyboard())
 
 @router.callback_query(F.data == "admin_back")
 async def back(callback: CallbackQuery):
     from keyboards.inline import admin_main_keyboard
-    await callback.message.edit_text("🛠 Админ-панель:", reply_markup=admin_main_keyboard())
+    await callback.message.edit_text(f"🛠 Админ-панель {VERSION}", reply_markup=admin_main_keyboard())
     await callback.answer()
 
-# ---------- РАССЫЛКА ----------
-@router.callback_query(F.data == "admin_broadcast")
-async def broadcast_start(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("Введите сообщение для рассылки:")
-    await state.set_state(AdminBroadcast.message)
-
-@router.message(AdminBroadcast.message)
-async def broadcast_exec(message: Message, state: FSMContext):
+# ---------- СТАТИСТИКА ----------
+@router.callback_query(F.data == "admin_stats")
+async def stats(callback: CallbackQuery):
     async with AsyncSessionLocal() as session:
-        users = (await session.execute(select(User.user_id))).scalars().all()
-    success = 0
-    fail = 0
-    for uid in users:
-        try:
-            await message.bot.send_message(uid, message.text)
-            success += 1
-        except:
-            fail += 1
-    await message.answer(f"📨 Рассылка завершена. Успешно: {success}, не доставлено: {fail}.")
+        total_users = (await session.execute(select(func.count(User.user_id)))).scalar()
+        paid_invoices = (await session.execute(select(func.sum(Invoice.amount)).where(Invoice.status == 'paid'))).scalar() or 0.0
+        await callback.message.edit_text(
+            f"📊 Статистика\n"
+            f"Пользователей: {total_users}\n"
+            f"Заработано с пополнений: {paid_invoices:.2f}$\n"
+            f"Версия: {VERSION}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]
+            ])
+        )
+
+# ---------- ЭКСПОРТ / ИМПОРТ ----------
+@router.callback_query(F.data == "admin_export")
+async def export_db(callback: CallbackQuery):
+    # Отправляем файл bot.db
+    try:
+        await callback.message.answer_document(FSInputFile("bot.db"), caption="📤 Экспорт базы данных")
+    except Exception as e:
+        await callback.message.answer(f"Ошибка экспорта: {e}")
+
+@router.callback_query(F.data == "admin_import")
+async def import_start(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("Отправьте файл bot.db для импорта (это заменит текущую базу).")
+    await state.set_state(AdminImport.file)
+
+@router.message(AdminImport.file, F.document)
+async def import_file(message: Message, state: FSMContext):
+    if not message.document.file_name.endswith(".db"):
+        await message.answer("❌ Принимается только файл с расширением .db")
+        return
+    # Сохраняем файл
+    file_id = message.document.file_id
+    file = await message.bot.get_file(file_id)
+    await message.bot.download_file(file.file_path, "bot.db.new")
+    # Заменяем старую БД
+    os.replace("bot.db.new", "bot.db")
+    await message.answer("✅ База данных импортирована. Перезапустите бота для применения изменений.")
     await state.clear()
 
 # ---------- ДОБАВЛЕНИЕ ТОВАРА ----------
@@ -80,6 +107,12 @@ async def ap_cat(message: Message, state: FSMContext):
 @router.message(AdminAddProduct.name)
 async def ap_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
+    await message.answer("Введите описание товара (то, что увидят в меню):")
+    await state.set_state(AdminAddProduct.description)
+
+@router.message(AdminAddProduct.description)
+async def ap_desc(message: Message, state: FSMContext):
+    await state.update_data(description=message.text)
     await message.answer("Введите цену за 1 шт. в $:")
     await state.set_state(AdminAddProduct.price)
 
@@ -91,42 +124,78 @@ async def ap_price(message: Message, state: FSMContext):
         await message.answer("Введите число")
         return
     await state.update_data(price=price)
-    await message.answer("Отправьте текст товара (каждая непустая строка = одна единица):")
+    await message.answer("Введите количество (0 – бесконечно):")
+    await state.set_state(AdminAddProduct.quantity)
+
+@router.message(AdminAddProduct.quantity)
+async def ap_qty(message: Message, state: FSMContext):
+    try:
+        qty = int(message.text)
+        if qty < 0: raise ValueError
+    except:
+        await message.answer("Введите целое число (0 или больше)")
+        return
+    await state.update_data(quantity=qty)
+    await message.answer("Отправьте текст товара (каждая непустая строка = одна единица) или '-' если товар только файлом:")
     await state.set_state(AdminAddProduct.content)
 
 @router.message(AdminAddProduct.content)
 async def ap_content(message: Message, state: FSMContext):
-    content = message.text
-    lines = [line.strip() for line in content.split('\n') if line.strip()]
-    quantity = len(lines)
-    if quantity == 0:
-        await message.answer("❌ Текст не может быть пустым.")
-        return
+    if message.text.strip() == '-':
+        content = None
+    else:
+        content = message.text
+        lines = [line.strip() for line in content.split('\n') if line.strip()]
+        if len(lines) == 0:
+            await message.answer("❌ Текст не может быть пустым. Отправьте хотя бы одну строку или '-'")
+            return
+    await state.update_data(content=content)
+    await message.answer("Отправьте файл товара (документ/фото) или '-' если не нужен:")
+    await state.set_state(AdminAddProduct.file)
+
+@router.message(AdminAddProduct.file)
+async def ap_file(message: Message, state: FSMContext):
     data = await state.get_data()
+    quantity = data['quantity']
+    content = data.get('content')
+
+    # Обработка файла
+    if message.document:
+        file_id = message.document.file_id
+    elif message.photo:
+        file_id = message.photo[-1].file_id
+    else:
+        file_id = None
+
+    if not content and not file_id:
+        await message.answer("❌ Нужен хотя бы текст или файл.")
+        return
+
     async with AsyncSessionLocal() as session:
         prod = Product(
             category_id=data['category_id'],
             name=data['name'],
-            quantity=quantity,
+            description=data['description'],
             price=data['price'],
+            quantity=quantity,
             content=content,
-            file_id=None
+            file_id=file_id
         )
         session.add(prod)
         await session.commit()
-    await message.answer(f"✅ Товар '{data['name']}' добавлен ({quantity} шт.)")
+    await message.answer(f"✅ Товар '{data['name']}' добавлен!")
     await state.clear()
 
-# ---------- КАТЕГОРИИ ----------
+# ---------- ДОБАВЛЕНИЕ КАТЕГОРИИ ----------
 @router.callback_query(F.data == "admin_add_category")
 async def add_cat(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("Название категории:")
+    await callback.message.edit_text("Введите название новой категории:")
     await state.set_state(AdminAddCategory.name)
 
 @router.message(AdminAddCategory.name)
 async def cat_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
-    await message.answer("ID родительской категории (0 – верхний уровень):")
+    await message.answer("Введите ID родительской категории (0 — если верхний уровень):")
     await state.set_state(AdminAddCategory.parent_id)
 
 @router.message(AdminAddCategory.parent_id)
@@ -134,7 +203,14 @@ async def cat_parent(message: Message, state: FSMContext):
     data = await state.get_data()
     try:
         pid = int(message.text)
-        if pid == 0: pid = None
+        if pid == 0:
+            pid = None
+        else:
+            # проверяем существование родителя
+            async with AsyncSessionLocal() as session:
+                if not await session.get(Category, pid):
+                    await message.answer("❌ Родительская категория не найдена.")
+                    return
     except:
         await message.answer("Введите число")
         return
@@ -427,9 +503,9 @@ async def admin_replaces(callback: CallbackQuery):
         for req in reqs:
             text = (f"Заявка #{req.id}\n"
                     f"Пользователь: {req.user_id}\n"
-                    f"Номер лога: {req.log_number}\n"
+                    f"Телефон: {req.phone_number or '-'}\n"
+                    f"Дата: {req.date_time or '-'}\n"
                     f"Жалоба: {req.complaint}")
-            # Отправить фото, если есть
             if req.photos:
                 photo_ids = req.photos.split(',')
                 if photo_ids:
@@ -451,7 +527,8 @@ async def app_replace(callback: CallbackQuery):
         req.status = 'approved'
         await session.commit()
         try:
-            await callback.bot.send_message(req.user_id, f"✅ Заявка на замену #{rid} одобрена. Свяжитесь с поддержкой.")
+            await callback.bot.send_message(req.user_id, f"✅ Заявка на замену #{rid} одобрена. Ожидайте файл.")
+            # если хотите отправить файл – можно взять из покупки
         except Exception as e:
             await callback.answer(f"Ошибка: {e}")
     await callback.message.edit_reply_markup()
@@ -461,7 +538,7 @@ async def app_replace(callback: CallbackQuery):
 async def rej_replace(callback: CallbackQuery, state: FSMContext):
     rid = int(callback.data.split("_")[2])
     await callback.message.answer("Введите причину отказа (без бана):")
-    await state.set_state(AdminUserBan.user_id)  # переиспользуем состояние
+    await state.set_state(AdminUserBan.user_id)
     await state.update_data(req_id=rid)
     await callback.answer()
 
