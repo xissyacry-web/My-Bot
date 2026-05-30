@@ -12,7 +12,7 @@ from handlers.admin_handlers import router as admin_router
 from config import ADMIN_IDS, BOT_ACTIVE as CONFIG_BOT_ACTIVE
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8961635368:AAGrLICFaRDceOFDa5RBIlY2274_DKtvs0k")
-ADMIN_IDS_STR = os.environ.get("ADMIN_IDS", "1073780833,8704427047")
+ADMIN_IDS_STR = os.environ.get("ADMIN_IDS", "1073780833")
 ADMIN_IDS = [int(x.strip()) for x in ADMIN_IDS_STR.split(",") if x.strip()]
 
 if not BOT_TOKEN:
@@ -74,14 +74,15 @@ class BanMiddleware(BaseMiddleware):
             user_id = event.from_user.id
 
         import config
-        if not config.BOT_ACTIVE and user_id not in ADMIN_IDS:
+        # Важно: админы не блокируются при выключенном боте
+        if not config.BOT_ACTIVE and user_id not in config.ADMIN_IDS:
             if isinstance(event, Message):
                 await event.answer("🔴 Бот временно отключён.")
             elif isinstance(event, CallbackQuery):
                 await event.answer("Бот отключён.", show_alert=True)
             return
 
-        if user_id and user_id not in ADMIN_IDS:
+        if user_id and user_id not in config.ADMIN_IDS:
             async with AsyncSessionLocal() as session:
                 user = await session.get(User, user_id)
                 if user and user.is_banned:
