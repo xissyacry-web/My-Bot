@@ -62,7 +62,6 @@ async def payment_checker(bot: Bot):
             print(f"Payment checker error: {e}")
         await asyncio.sleep(10)
 
-# ---------- Middleware ----------
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject
 
@@ -74,7 +73,6 @@ class BanMiddleware(BaseMiddleware):
         elif isinstance(event, CallbackQuery):
             user_id = event.from_user.id
 
-        # Проверка активности бота
         import config
         if not config.BOT_ACTIVE and user_id not in ADMIN_IDS:
             if isinstance(event, Message):
@@ -83,7 +81,6 @@ class BanMiddleware(BaseMiddleware):
                 await event.answer("Бот отключён.", show_alert=True)
             return
 
-        # Проверка бана
         if user_id and user_id not in ADMIN_IDS:
             async with AsyncSessionLocal() as session:
                 user = await session.get(User, user_id)
