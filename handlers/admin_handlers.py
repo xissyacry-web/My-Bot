@@ -5,7 +5,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from datetime import datetime, timedelta
 from database.database import AsyncSessionLocal
 from database.models import User, Product, Category, ReplaceRequest, Purchase, Promocode, UnbanRequest, Invoice
-from config import ADMIN_IDS
+from config import ADMIN_IDS, BOT_ACTIVE
 from utils.states import *
 from services.product_service import get_categories, get_products_by_category
 from sqlalchemy import select, func
@@ -33,16 +33,32 @@ async def back(callback: CallbackQuery):
 
 # ---------- СТАТИСТИКА ----------
 @router.callback_query(F.data == "admin_stats")
-async def stats(callback: CallbackQuery):
-    async with AsyncSessionLocal() as session:
-        total_users = (await session.execute(select(func.count(User.user_id)))).scalar()
-        paid_invoices = (await session.execute(select(func.sum(Invoice.amount)).where(Invoice.status == 'paid'))).scalar() or 0.0
-        await callback.message.edit_text(
-            f"📊 Статистика\nПользователей: {total_users}\nЗаработано с пополнений: {paid_invoices:.2f}$\nВерсия: {VERSION}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]])
-        )
+async def stats_menu(callback: CallbackQuery):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="День", callback_data="stats_day")
+    builder.button(text="7 дней", callback_data="stats_week")
+    builder.button(text="30 дней", callback_data="stats_month")
+    builder.button(text="🔙 Назад", callback_data="admin_back")
+    await callback.message.edit_text("Выберите период:", reply_markup=builder.as_markup())
 
-# ---------- ЭКСПОРТ / ИМПОРТ ----------
+@router.callback_query(F.data.startswith("stats_"))
+async def stats_show(callback: CallbackQuery):
+    period = callback.data.split("_")[1]
+    days = 1 if period == "day" else 7 if period == "week" else 30
+    since = datetime.utcnow() - timedelta(days=days)
+    async with AsyncSessionLocal() as session:
+        new_users = (await session.execute(select(func.count(User.user_id)).where(User.registered_at >= since))).scalar()
+        purchases = (await session.execute(select(func.count(Purchase.id)).where(Purchase.purchased_at >= since))).scalar()
+        refills = (await session.execute(select(func.count(Invoice.id)).where(Invoice.created_at >= since, Invoice.status == 'paid'))).scalar()
+        refills_sum = (await session.execute(select(func.sum(Invoice.amount)).where(Invoice.created_at >= since, Invoice.status == 'paid'))).scalar() or 0.0
+    text = (f"📊 Статистика за {days} дн.\n"
+            f"Новых пользователей: {new_users}\n"
+            f"Покупок: {purchases}\n"
+            f"Пополнений: {refills} на сумму {refills_sum:.2f}$")
+    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin_stats")]]))
+
+# ---------- ЭКСПОРТ / ИМПОРТ (с подтверждением) ----------
 @router.callback_query(F.data == "admin_export")
 async def export_db(callback: CallbackQuery):
     try:
@@ -52,7 +68,13 @@ async def export_db(callback: CallbackQuery):
 
 @router.callback_query(F.data == "admin_import")
 async def import_start(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("Отправьте файл bot.db для импорта (это заменит текущую базу).")
+    await callback.message.edit_text(
+        "⚠️ Импорт полностью заменит текущую базу данных.\n"
+        "Отправьте файл bot.db или нажмите «Отмена».",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Отмена", callback_data="admin_back")]
+        ])
+    )
     await state.set_state(AdminImport.file)
 
 @router.message(AdminImport.file, F.document)
@@ -65,7 +87,20 @@ async def import_file(message: Message, state: FSMContext):
     await message.bot.download_file(file.file_path, "bot.db.new")
     os.replace("bot.db.new", "bot.db")
     await message.answer("✅ База данных импортирована. Бот будет перезапущен...")
-    sys.exit(0)   # завершение процесса заставит Render перезапустить контейнер
+    sys.exit(0)
+
+# ---------- ВКЛЮЧЕНИЕ / ВЫКЛЮЧЕНИЕ БОТА ----------
+@router.callback_query(F.data == "admin_toggle_bot")
+async def toggle_bot(callback: CallbackQuery):
+    import config
+    config.BOT_ACTIVE = not config.BOT_ACTIVE
+    state = "выключен 🔴" if not config.BOT_ACTIVE else "включен 🟢"
+    # Обновляем глобальную переменную, если используется в других модулях
+    from config import BOT_ACTIVE as bot_active
+    await callback.message.edit_text(f"Бот {state}.", reply_markup=InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]]
+    ))
+    await callback.answer()
 
 # ---------- РАССЫЛКА ----------
 @router.callback_query(F.data == "admin_broadcast")
@@ -84,6 +119,9 @@ async def broadcast_exec(message: Message, state: FSMContext):
             success += 1
         except:
             fail += 1
+    # Лог рассылки
+    from services.log_service import log_broadcast
+    await log_broadcast(message.bot, message.from_user.id, message.text, success, fail)
     await message.answer(f"📨 Рассылка завершена. Успешно: {success}, не доставлено: {fail}.")
     await state.clear()
 
@@ -235,7 +273,7 @@ async def cat_parent(message: Message, state: FSMContext):
     await message.answer("✅ Категория добавлена!")
     await state.clear()
 
-# ---------- УДАЛЕНИЕ ТОВАРА (ИСПРАВЛЕНО) ----------
+# ---------- УДАЛЕНИЕ ТОВАРА ----------
 @router.callback_query(F.data == "admin_delete_product")
 async def del_prod_cat(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as session:
