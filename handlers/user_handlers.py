@@ -28,14 +28,12 @@ async def clear_state_on_menu(message: Message, state: FSMContext):
     if current is not None:
         await state.clear()
 
-# ---------- /start ----------
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
     await ensure_user(message.from_user.id, message.from_user.username)
     await message.answer("🎉 Добро пожаловать!", reply_markup=main_menu())
 
-# ---------- МЕНЮ ----------
 @router.message(F.text == "📋 Меню")
 async def show_categories(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
@@ -47,7 +45,6 @@ async def show_categories(message: Message, state: FSMContext):
         else:
             await message.answer("Каталог пуст. Добавьте категории через админку.")
 
-# ---------- Наличие товаров ----------
 @router.message(F.text == "📦 Наличие товаров")
 async def show_all_products(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
@@ -56,7 +53,6 @@ async def show_all_products(message: Message, state: FSMContext):
         text = await get_all_products_text(session)
         await message.answer(text)
 
-# ---------- Выбор категории ----------
 @router.callback_query(F.data.startswith("cat_"))
 async def category_selected(callback: CallbackQuery):
     cat_id = int(callback.data.split("_")[1])
@@ -93,7 +89,6 @@ async def back_to_categories(callback: CallbackQuery):
             await callback.message.edit_text("Категорий нет")
     await callback.answer()
 
-# ---------- ПОКУПКА ----------
 @router.callback_query(F.data.startswith("buy_"))
 async def buy_start(callback: CallbackQuery, state: FSMContext):
     product_id = int(callback.data.split("_")[1])
@@ -151,7 +146,6 @@ async def buy_amount(message: Message, state: FSMContext):
             await message.answer(f"❌ {result['error']}")
     await state.clear()
 
-# ---------- ПРОФИЛЬ ----------
 @router.message(F.text == "👤 Профиль")
 async def profile(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
@@ -164,7 +158,6 @@ async def profile(message: Message, state: FSMContext):
             f"Регистрация: {user.registered_at.strftime('%d.%m.%Y')} ({days} дн.)")
     await message.answer(text)
 
-# ---------- ПОПОЛНЕНИЕ ----------
 @router.message(F.text == "💳 Пополнить баланс")
 async def ask_amount(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
@@ -221,7 +214,6 @@ async def check_payment(callback: CallbackQuery):
             await callback.answer("Оплата не поступила.", show_alert=True)
     await callback.answer()
 
-# ---------- ПРОМОКОДЫ ----------
 @router.message(F.text == "🎁 Промокод")
 async def promocode_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
@@ -262,7 +254,7 @@ async def promocode_apply(message: Message, state: FSMContext):
             await message.answer(f"🎁 Промокод активирован! +{promo.bonus_amount:.2f}$")
     await state.clear()
 
-# ---------- ЗАМЕНА (НОВАЯ) ----------
+# ---------- ЗАМЕНА (РАБОЧАЯ ВЕРСИЯ) ----------
 @router.message(F.text == "🔄 Замена")
 async def replace_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
@@ -280,7 +272,7 @@ async def replace_start(message: Message, state: FSMContext):
 @router.message(ReplaceRequestStates.phone_number)
 async def replace_phone(message: Message, state: FSMContext):
     await state.update_data(phone_number=message.text)
-    await message.answer("Введите дату и время операции (например, 25.03.2025 14:30):")
+    await message.answer("Введите дату и время операции (пример: 25.03.2025 14:30):")
     await state.set_state(ReplaceRequestStates.date_time)
 
 @router.message(ReplaceRequestStates.date_time)
@@ -296,7 +288,7 @@ async def replace_photo(message: Message, state: FSMContext):
     photos = data.get('photos', [])
     photos.append(message.photo[-1].file_id)
     await state.update_data(photos=photos)
-    await message.answer(f"Фото {len(photos)} получено. Можете отправить ещё или напишите 'готово'.")
+    await message.answer(f"Фото {len(photos)} получено. Отправьте ещё или напишите 'готово'.")
 
 @router.message(ReplaceRequestStates.photos, F.text == "готово")
 async def replace_photos_done(message: Message, state: FSMContext):
@@ -306,12 +298,8 @@ async def replace_photos_done(message: Message, state: FSMContext):
         await message.answer("Вы не отправили ни одного фото. Отправьте фото или напишите '-', если их нет.")
         return
     await state.update_data(photos=photos)
-    await message.answer("Теперь опишите вашу жалобу текстом:")
+    await message.answer("Опишите вашу жалобу текстом:")
     await state.set_state(ReplaceRequestStates.complaint)
-
-@router.message(ReplaceRequestStates.photos)
-async def replace_photos_text(message: Message, state: FSMContext):
-    await message.answer("Отправьте фото или напишите 'готово' для завершения.")
 
 @router.message(ReplaceRequestStates.complaint)
 async def replace_complaint(message: Message, state: FSMContext):
@@ -331,20 +319,20 @@ async def replace_complaint(message: Message, state: FSMContext):
 
         for admin_id in ADMIN_IDS:
             try:
-                text = (f"🔄 Заявка на замену #{req.id}\n"
-                        f"Пользователь: @{message.from_user.username} ({message.from_user.id})\n"
-                        f"Телефон: {phone}\nДата: {date_time}\n"
-                        f"Жалоба: {complaint}")
+                text_msg = (f"🔄 Заявка на замену #{req.id}\n"
+                            f"Пользователь: @{message.from_user.username} ({message.from_user.id})\n"
+                            f"Телефон: {phone}\nДата: {date_time}\n"
+                            f"Жалоба: {complaint}")
                 if photos:
                     media = [InputMediaPhoto(media=pid) for pid in photos]
                     await message.bot.send_media_group(admin_id, media)
-                await message.bot.send_message(admin_id, text,
+                await message.bot.send_message(admin_id, text_msg,
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve_replace_{req.id}"),
                          InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_replace_{req.id}")]
                     ]))
             except Exception as e:
-                print(f"Ошибка уведомления админа {admin_id}: {e}")
+                print(f"Ошибка уведомления админа: {e}")
     await message.answer("✅ Заявка на замену отправлена. Ожидайте решения администратора.")
     await state.clear()
 
