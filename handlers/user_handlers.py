@@ -9,7 +9,7 @@ from keyboards.reply import main_menu
 from keyboards.inline import categories_keyboard, products_keyboard, payment_keyboard
 from services.user_service import get_user, create_user
 from services.product_service import get_categories, get_products_by_category, buy_product, get_all_products_text
-from services.replace_service import create_replace_request
+
 from services.payment_service import create_invoice
 from services.log_service import log_purchase, log_register, log_refill, log_promo, log_replace
 from utils.states import ReplenishBalance, PromocodeInput, ReplaceRequestStates, BuyProduct, UnbanProcess
