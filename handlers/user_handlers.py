@@ -75,7 +75,9 @@ async def category_selected(callback: CallbackQuery):
             if products:
                 text = "Доступные товары:\n\n"
                 for p in products:
-                    text += f"📌 {p.name}\n💰 Цена: {p.price}$ за шт.\n📦 В наличии: {p.quantity} шт.\n\n"
+                    qty = "∞" if p.quantity == 0 else str(p.quantity)
+                    desc = p.description if p.description else "без описания"
+                    text += f"📌 {p.name}\n💰 Цена: {p.price}$ за шт.\n📦 В наличии: {qty} шт.\n📝 {desc}\n\n"
                 await callback.message.edit_text(text, reply_markup=products_keyboard(products))
             else:
                 await callback.answer("В этой категории пока нет товаров", show_alert=True)
@@ -100,10 +102,11 @@ async def buy_start(callback: CallbackQuery, state: FSMContext):
         if not product or not product.is_available:
             await callback.answer("Товар недоступен", show_alert=True)
             return
-        desc = product.content if product.content else "Товар без текста"
+        qty = "∞" if product.quantity == 0 else str(product.quantity)
+        desc = product.description if product.description else "Описание отсутствует"
         await callback.message.answer(
-            f"📦 {product.name}\n💰 Цена: {product.price}$ за шт.\n📝 Товар:\n{desc}\n\n"
-            f"Введите количество, которое хотите купить (доступно {product.quantity} шт.):"
+            f"📦 {product.name}\n💰 Цена: {product.price}$ за шт.\n📝 {desc}\n\n"
+            f"Введите количество, которое хотите купить (доступно {qty} шт.):"
         )
         await state.set_state(BuyProduct.amount)
         await state.update_data(product_id=product_id)
@@ -127,10 +130,15 @@ async def buy_amount(message: Message, state: FSMContext):
     async with AsyncSessionLocal() as session:
         result = await buy_product(session, user_id, product_id, amount)
         if result["success"]:
+            qleft = result.get('quantity_left', 0)
+            if isinstance(qleft, int):
+                qleft_str = f"{qleft} шт." if qleft > 0 else "0 шт."
+            else:
+                qleft_str = "∞"
             text = (f"✅ Куплено {amount} шт.\n"
                     f"Товар: {result['product_name']}\n"
                     f"Остаток: {result['balance']:.2f}$\n"
-                    f"Осталось товара: {result['quantity_left']} шт.")
+                    f"Осталось товара: {qleft_str}")
             await message.answer(text)
             if result.get("content"):
                 await message.answer(f"📦 Ваш товар:\n{result['content']}")
@@ -266,12 +274,18 @@ async def replace_start(message: Message, state: FSMContext):
         if not exists:
             await message.answer("⚠️ Нет завершённых покупок.")
             return
-    await message.answer("Введите номер лога:")
-    await state.set_state(ReplaceRequestStates.log_number)
+    await message.answer("Введите номер телефона:")
+    await state.set_state(ReplaceRequestStates.phone_number)
 
-@router.message(ReplaceRequestStates.log_number)
-async def replace_log(message: Message, state: FSMContext):
-    await state.update_data(log_number=message.text)
+@router.message(ReplaceRequestStates.phone_number)
+async def replace_phone(message: Message, state: FSMContext):
+    await state.update_data(phone_number=message.text)
+    await message.answer("Введите дату и время операции (например, 25.03.2025 14:30):")
+    await state.set_state(ReplaceRequestStates.date_time)
+
+@router.message(ReplaceRequestStates.date_time)
+async def replace_date(message: Message, state: FSMContext):
+    await state.update_data(date_time=message.text)
     await message.answer("Теперь отправляйте фото по одному. Когда закончите, напишите 'готово'.")
     await state.set_state(ReplaceRequestStates.photos)
     await state.update_data(photos=[])
@@ -297,46 +311,32 @@ async def replace_photos_done(message: Message, state: FSMContext):
 
 @router.message(ReplaceRequestStates.photos)
 async def replace_photos_text(message: Message, state: FSMContext):
-    # Если не фото и не "готово", подсказываем
     await message.answer("Отправьте фото или напишите 'готово' для завершения.")
 
 @router.message(ReplaceRequestStates.complaint)
 async def replace_complaint(message: Message, state: FSMContext):
     complaint = message.text
     data = await state.get_data()
-    log_number = data['log_number']
+    phone = data['phone_number']
+    date_time = data['date_time']
     photos = data.get('photos', [])
-    photo_str = ','.join(photos) if photos else None
 
     async with AsyncSessionLocal() as session:
-        # Получаем последнюю завершённую покупку
-        from sqlalchemy import select as sql_select
-        purchase = (await session.execute(
-            sql_select(Purchase).where(Purchase.user_id == message.from_user.id, Purchase.status == 'completed')
-            .order_by(Purchase.purchased_at.desc()).limit(1)
-        )).scalar_one_or_none()
-        if not purchase:
-            await message.answer("Ошибка: не найдена завершённая покупка.")
+        try:
+            req = await create_replace_request(session, message.from_user.id, phone, date_time, photos, complaint)
+        except ValueError as e:
+            await message.answer(f"❌ {e}")
             await state.clear()
             return
-        req = ReplaceRequest(
-            user_id=message.from_user.id,
-            purchase_id=purchase.id,
-            log_number=log_number,
-            photos=photo_str,
-            complaint=complaint
-        )
-        session.add(req)
-        await session.commit()
-        # Уведомляем админов
+
         for admin_id in ADMIN_IDS:
             try:
                 text = (f"🔄 Заявка на замену #{req.id}\n"
                         f"Пользователь: @{message.from_user.username} ({message.from_user.id})\n"
-                        f"Номер лога: {log_number}\n"
+                        f"Телефон: {phone}\nДата: {date_time}\n"
                         f"Жалоба: {complaint}")
-                if photo_str:
-                    media = [InputMediaPhoto(media=pid) for pid in photo_str.split(',')]
+                if photos:
+                    media = [InputMediaPhoto(media=pid) for pid in photos]
                     await message.bot.send_media_group(admin_id, media)
                 await message.bot.send_message(admin_id, text,
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -352,7 +352,6 @@ async def replace_complaint(message: Message, state: FSMContext):
 @router.callback_query(F.data == "unban_request")
 async def unban_request(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    # Проверка, забанен ли пользователь вообще
     async with AsyncSessionLocal() as session:
         user = await session.get(User, user_id)
         if not user or not user.is_banned:
@@ -433,7 +432,6 @@ async def unban_confirm(callback: CallbackQuery, state: FSMContext):
         )
         session.add(req)
         await session.commit()
-        # Уведомить админов
         for admin_id in ADMIN_IDS:
             try:
                 if photos:
