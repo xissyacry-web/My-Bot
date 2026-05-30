@@ -9,10 +9,10 @@ from database.models import Invoice, User
 from services.payment_service import check_pending_invoices
 from handlers.user_handlers import router as user_router
 from handlers.admin_handlers import router as admin_router
-from config import ADMIN_IDS
+from config import ADMIN_IDS, BOT_ACTIVE as CONFIG_BOT_ACTIVE
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8961635368:AAGrLICFaRDceOFDa5RBIlY2274_DKtvs0k")
-ADMIN_IDS_STR = os.environ.get("ADMIN_IDS", "1073780833")
+ADMIN_IDS_STR = os.environ.get("ADMIN_IDS", "1073780833,8704427047")
 ADMIN_IDS = [int(x.strip()) for x in ADMIN_IDS_STR.split(",") if x.strip()]
 
 if not BOT_TOKEN:
@@ -62,7 +62,7 @@ async def payment_checker(bot: Bot):
             print(f"Payment checker error: {e}")
         await asyncio.sleep(10)
 
-# ---------- Middleware для блокировки ----------
+# ---------- Middleware ----------
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject
 
@@ -74,6 +74,16 @@ class BanMiddleware(BaseMiddleware):
         elif isinstance(event, CallbackQuery):
             user_id = event.from_user.id
 
+        # Проверка активности бота
+        import config
+        if not config.BOT_ACTIVE and user_id not in ADMIN_IDS:
+            if isinstance(event, Message):
+                await event.answer("🔴 Бот временно отключён.")
+            elif isinstance(event, CallbackQuery):
+                await event.answer("Бот отключён.", show_alert=True)
+            return
+
+        # Проверка бана
         if user_id and user_id not in ADMIN_IDS:
             async with AsyncSessionLocal() as session:
                 user = await session.get(User, user_id)
@@ -88,7 +98,6 @@ class BanMiddleware(BaseMiddleware):
                             ])
                         )
                     elif isinstance(event, CallbackQuery):
-                        # Отправляем полноценное сообщение, а не только алерт
                         await event.message.answer(
                             f"🚫 Вы заблокированы.\nПричина: {user.ban_reason or 'не указана'}\n\n"
                             "Вы не можете пользоваться ботом.",
@@ -97,7 +106,7 @@ class BanMiddleware(BaseMiddleware):
                                  InlineKeyboardButton(text="Нет", callback_data="unban_ignore")]
                             ])
                         )
-                        await event.answer()  # убираем "ожидание" на кнопке
+                        await event.answer()
                     return
         return await handler(event, data)
 
