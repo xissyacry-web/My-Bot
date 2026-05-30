@@ -80,14 +80,24 @@ class BanMiddleware(BaseMiddleware):
                 if user and user.is_banned:
                     if isinstance(event, Message):
                         await event.answer(
-                            f"🚫 Вы заблокированы.\nПричина: {user.ban_reason or 'не указана'}",
+                            f"🚫 Вы заблокированы.\nПричина: {user.ban_reason or 'не указана'}\n\n"
+                            "Вы не можете пользоваться ботом.",
                             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                                 [InlineKeyboardButton(text="Разжаловать: Да", callback_data="unban_request"),
                                  InlineKeyboardButton(text="Нет", callback_data="unban_ignore")]
                             ])
                         )
                     elif isinstance(event, CallbackQuery):
-                        await event.answer("Вы заблокированы.", show_alert=True)
+                        # Отправляем полноценное сообщение, а не только алерт
+                        await event.message.answer(
+                            f"🚫 Вы заблокированы.\nПричина: {user.ban_reason or 'не указана'}\n\n"
+                            "Вы не можете пользоваться ботом.",
+                            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="Разжаловать: Да", callback_data="unban_request"),
+                                 InlineKeyboardButton(text="Нет", callback_data="unban_ignore")]
+                            ])
+                        )
+                        await event.answer()  # убираем "ожидание" на кнопке
                     return
         return await handler(event, data)
 
