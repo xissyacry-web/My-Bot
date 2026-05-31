@@ -27,9 +27,9 @@ class Product(Base):
     id = Column(Integer, primary_key=True)
     category_id = Column(Integer, ForeignKey('categories.id'))
     name = Column(String)
-    description = Column(Text, nullable=True)      # описание товара
+    description = Column(Text, nullable=True)
     price = Column(Float)
-    quantity = Column(Integer, default=0)          # 0 = бесконечно
+    quantity = Column(Integer, default=0)
     content = Column(Text, nullable=True)
     file_id = Column(String, nullable=True)
     is_available = Column(Boolean, default=True)
@@ -60,8 +60,7 @@ class ReplaceRequest(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.user_id'))
     purchase_id = Column(Integer, ForeignKey('purchases.id'))
-    phone_number = Column(String, nullable=True)   # оставляем для совместимости
-    date_time = Column(String, nullable=True)
+    log_info = Column(String)             # номер лога и время одной строкой
     photos = Column(Text)
     complaint = Column(Text)
     status = Column(String, default='pending')
