@@ -28,8 +28,9 @@ def admin_main_keyboard():
     builder.button(text="➕ Добавить категорию", callback_data="admin_add_category")
     builder.button(text="🗑 Удалить товар", callback_data="admin_delete_product")
     builder.button(text="🗑 Удалить категорию", callback_data="admin_delete_category")
-    builder.button(text="🎁 Управление промокодами", callback_data="admin_promocodes")
+    builder.button(text="🎁 Промокоды", callback_data="admin_promocodes")
     builder.button(text="👥 Пользователи", callback_data="admin_users_menu")
+    builder.button(text="🔄 Заявки на замену", callback_data="admin_replaces")
     builder.button(text="📨 Рассылка", callback_data="admin_broadcast")
     builder.button(text="📊 Статистика", callback_data="admin_stats")
     builder.adjust(2)
@@ -37,16 +38,16 @@ def admin_main_keyboard():
 
 def admin_promocodes_keyboard():
     builder = InlineKeyboardBuilder()
-    builder.button(text="➕ Создать промокод", callback_data="promo_add")
-    builder.button(text="🗑 Удалить промокод", callback_data="promo_delete")
-    builder.button(text="📋 Список промокодов", callback_data="promo_list")
+    builder.button(text="➕ Создать", callback_data="promo_add")
+    builder.button(text="🗑 Удалить", callback_data="promo_delete")
+    builder.button(text="📋 Список", callback_data="promo_list")
     builder.button(text="🔙 Назад", callback_data="admin_back")
     builder.adjust(2)
     return builder.as_markup()
 
 def admin_users_keyboard():
     builder = InlineKeyboardBuilder()
-    builder.button(text="🔍 Поиск пользователя", callback_data="user_search")
+    builder.button(text="🔍 Поиск", callback_data="user_search")
     builder.button(text="💰 Изменить баланс", callback_data="user_balance")
     builder.button(text="🚫 Бан/Разбан", callback_data="user_ban")
     builder.button(text="🔙 Назад", callback_data="admin_back")
