@@ -9,6 +9,7 @@ from config import ADMIN_IDS
 from utils.states import *
 from services.product_service import get_categories, get_products_by_category
 from sqlalchemy import select, func
+import os
 
 router = Router()
 VERSION = "v1.0.8"
@@ -190,6 +191,71 @@ async def ap_file(message: Message, state: FSMContext):
         session.add(prod)
         await session.commit()
     await message.answer(f"✅ Товар '{data['name']}' добавлен!")
+    await state.clear()
+
+# ---------- ПОПОЛНЕНИЕ ТОВАРА (ДОБАВЛЕНИЕ СТРОК) ----------
+@router.callback_query(F.data == "admin_refill_product")
+async def refill_prod_cat(callback: CallbackQuery, state: FSMContext):
+    async with AsyncSessionLocal() as session:
+        cats = await get_categories(session)
+        if not cats:
+            await callback.message.edit_text("Нет категорий")
+            return
+        builder = InlineKeyboardBuilder()
+        for c in cats:
+            builder.button(text=c.name, callback_data=f"refillcat_{c.id}")
+        builder.adjust(2)
+        builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back"))
+        await callback.message.edit_text("Выберите категорию:", reply_markup=builder.as_markup())
+    await state.set_state(AdminRefillProduct.category_id)
+
+@router.callback_query(AdminRefillProduct.category_id, F.data.startswith("refillcat_"))
+async def refill_prod_list(callback: CallbackQuery, state: FSMContext):
+    cat_id = int(callback.data.split("_")[1])
+    await state.update_data(category_id=cat_id)
+    async with AsyncSessionLocal() as session:
+        prods = await get_products_by_category(session, cat_id)
+        if not prods:
+            await callback.answer("Нет товаров в этой категории", show_alert=True)
+            return
+        builder = InlineKeyboardBuilder()
+        for p in prods:
+            builder.button(text=f"{p.name} - {p.price}$ ({p.quantity} шт.)", callback_data=f"refillprod_{p.id}")
+        builder.adjust(1)
+        builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back"))
+        await callback.message.edit_text("Выберите товар для пополнения:", reply_markup=builder.as_markup())
+    await state.set_state(AdminRefillProduct.product_id)
+
+@router.callback_query(AdminRefillProduct.product_id, F.data.startswith("refillprod_"))
+async def refill_prod_content(callback: CallbackQuery, state: FSMContext):
+    pid = int(callback.data.split("_")[1])
+    await state.update_data(product_id=pid)
+    await callback.message.answer("Введите новый текст (строки) для добавления к товару:")
+    await state.set_state(AdminRefillProduct.content)
+    await callback.answer()
+
+@router.message(AdminRefillProduct.content)
+async def refill_prod_exec(message: Message, state: FSMContext):
+    content = message.text
+    lines = [line.strip() for line in content.split('\n') if line.strip()]
+    if not lines:
+        await message.answer("Текст не может быть пустым.")
+        return
+    data = await state.get_data()
+    pid = data['product_id']
+    async with AsyncSessionLocal() as session:
+        product = await session.get(Product, pid)
+        if not product:
+            await message.answer("Товар не найден.")
+            await state.clear()
+            return
+        old_content = product.content or ""
+        new_content = old_content + ("\n" if old_content else "") + "\n".join(lines)
+        product.content = new_content
+        product.quantity += len(lines)
+        product.is_available = True
+        await session.commit()
+        await message.answer(f"✅ Товар '{product.name}' пополнен на {len(lines)} шт. Теперь доступно: {product.quantity} шт.")
     await state.clear()
 
 # ---------- ДОБАВЛЕНИЕ КАТЕГОРИИ ----------
@@ -462,6 +528,9 @@ async def user_bal_amount(message: Message, state: FSMContext):
         if user:
             user.balance += amount
             await session.commit()
+            # Логируем пополнение (отправка в лог-канал)
+            from services.log_service import log_refill
+            await log_refill(message.bot, uid, "", amount)
             action = "пополнен" if amount >= 0 else "списан"
             try:
                 await message.bot.send_message(uid, f"💰 Ваш баланс {action} на {abs(amount):.2f}$ администратором.\nТекущий баланс: {user.balance:.2f}$")
