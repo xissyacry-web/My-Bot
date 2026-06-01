@@ -14,7 +14,7 @@ from services.replace_service import create_replace_request
 from services.log_service import log_purchase, log_register, log_refill, log_promo
 from utils.states import ReplenishBalance, PromocodeInput, BuyProduct, UnbanProcess, ReplaceRequestStates
 from config import ADMIN_IDS
-from sqlalchemy import select   # <-- ВОТ ИМПОРТ, КОТОРЫЙ БЫЛ ПРОПУЩЕН
+from sqlalchemy import select
 
 router = Router()
 
@@ -29,7 +29,7 @@ async def clear_state_on_menu(message: Message, state: FSMContext):
     if await state.get_state():
         await state.clear()
 
-# ========== ♻️ ЗАМЕНА ЛОГА ==========
+# ========== ЗАМЕНА ==========
 @router.message(F.text == "♻️ Замена лога")
 async def replace_start(message: Message, state: FSMContext):
     await state.clear()
@@ -96,7 +96,27 @@ async def replace_photos_done(message: Message, state: FSMContext):
     await message.answer("✅ Заявка отправлена. Ожидайте решения администратора.")
     await state.clear()
 
-# ========== ОСТАЛЬНОЙ ФУНКЦИОНАЛ ==========
+# ========== ИСТОРИЯ ПОКУПОК ==========
+@router.message(F.text == "📜 История покупок")
+async def purchase_history(message: Message, state: FSMContext):
+    await clear_state_on_menu(message, state)
+    user_id = message.from_user.id
+    async with AsyncSessionLocal() as session:
+        purchases = (await session.execute(
+            select(Purchase).where(Purchase.user_id == user_id)
+            .order_by(Purchase.purchased_at.desc()).limit(10)
+        )).scalars().all()
+        if not purchases:
+            await message.answer("У вас пока нет покупок.")
+            return
+        text = "📜 Последние покупки:\n\n"
+        for p in purchases:
+            product = await session.get(Product, p.product_id)
+            pname = product.name if product else "удалённый товар"
+            text += f"🆔 {p.id} | {pname}\n💰 {p.price}$ x {p.amount} шт.\n📅 {p.purchased_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+        await message.answer(text)
+
+# ========== СТАРТ ==========
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
@@ -262,14 +282,16 @@ async def support(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
     await message.answer("Свяжитесь с поддержкой: @Xissya")
 
-# ---------- РАЗЖАЛОВАНИЕ ----------
+# ========== РАЗЖАЛОВАНИЕ (без изменений) ==========
 @router.callback_query(F.data == "unban_request")
 async def unban_request(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     async with AsyncSessionLocal() as session:
         user = await session.get(User, user_id)
-        if not user or not user.is_banned: await callback.answer("Не заблокированы!", show_alert=True); return
-    await callback.message.answer("Отправьте фото (по одному). Если нет, напишите '-'.")
+        if not user or not user.is_banned:
+            await callback.answer("Вы не заблокированы!", show_alert=True)
+            return
+    await callback.message.answer("Начинаем процесс разжалования.\nОтправьте фото (по одному). Если фото нет, напишите '-'")
     await state.set_state(UnbanProcess.waiting_photos)
     await state.update_data(photos=[])
     await callback.answer()
@@ -280,46 +302,53 @@ async def unban_photo(message: Message, state: FSMContext):
     photos = data.get('photos', [])
     photos.append(message.photo[-1].file_id)
     await state.update_data(photos=photos)
-    await message.answer(f"Фото {len(photos)}. Ещё или 'готово'.")
+    await message.answer(f"Фото {len(photos)} получено. Отправьте ещё или напишите 'готово'.")
 
 @router.message(UnbanProcess.waiting_photos, F.text)
 async def unban_photo_text(message: Message, state: FSMContext):
     if message.text.strip().lower() == "готово":
         data = await state.get_data()
         photos = data.get('photos', [])
-        if not photos: await message.answer("Нет фото. Отправьте или '-'."); return
+        if not photos:
+            await message.answer("Вы не отправили ни одного фото. Отправьте фото или напишите '-' (если фото нет).")
+            return
         await state.update_data(photos=photos)
-        await message.answer("Количество фото? Введите число или 'готово'.")
+        await message.answer("Сколько фото вы отправили (для проверки)? Напишите число или 'готово', если всё верно.")
         await state.set_state(UnbanProcess.waiting_done)
     elif message.text.strip() == "-":
         await state.update_data(photos=[])
-        await message.answer("Опишите жалобу текстом:")
+        await message.answer("Фото не приложены. Теперь опишите вашу жалобу текстом:")
         await state.set_state(UnbanProcess.waiting_description)
-    else: await message.answer("Отправьте фото или 'готово'/'—'.")
+    else:
+        await message.answer("Отправьте фото или напишите 'готово'.")
 
 @router.message(UnbanProcess.waiting_done)
 async def unban_count(message: Message, state: FSMContext):
     data = await state.get_data()
     photos = data.get('photos', [])
     if message.text.strip().lower() == "готово":
-        await message.answer(f"Принято {len(photos)} фото. Опишите жалобу:")
+        await message.answer(f"Принято {len(photos)} фото. Теперь опишите вашу жалобу текстом:")
         await state.set_state(UnbanProcess.waiting_description)
     else:
         try:
             count = int(message.text)
             if count != len(photos):
-                await message.answer(f"Отправлено {len(photos)}, указано {count}. Повторите."); return
-            await message.answer(f"Верно. Опишите жалобу:")
+                await message.answer(f"Вы отправили {len(photos)} фото, а указали {count}. Отправьте ещё фото или напишите 'готово' ещё раз.")
+                return
+            await message.answer(f"Верно, {count} фото. Теперь опишите вашу жалобу текстом:")
             await state.set_state(UnbanProcess.waiting_description)
-        except: await message.answer("Введите число или 'готово'.")
+        except:
+            await message.answer("Введите число или 'готово'.")
 
 @router.message(UnbanProcess.waiting_description)
 async def unban_description(message: Message, state: FSMContext):
-    await state.update_data(description=message.text)
-    await message.answer("Отправить разжалование?",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Отправить", callback_data="unban_confirm"),
-             InlineKeyboardButton(text="Отмена", callback_data="unban_cancel")]]))
+    description = message.text
+    await state.update_data(description=description)
+    await message.answer("Проверьте ваши данные. Отправить разжалование?",
+                         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                             [InlineKeyboardButton(text="Отправить", callback_data="unban_confirm"),
+                              InlineKeyboardButton(text="Отмена", callback_data="unban_cancel")]
+                         ]))
     await state.set_state(UnbanProcess.confirm)
 
 @router.callback_query(UnbanProcess.confirm, F.data == "unban_confirm")
@@ -328,22 +357,38 @@ async def unban_confirm(callback: CallbackQuery, state: FSMContext):
     photos = data.get('photos', [])
     description = data.get('description', '-')
     user_id = callback.from_user.id
+
     async with AsyncSessionLocal() as session:
-        req = UnbanRequest(user_id=user_id, photos=','.join(photos) if photos else None, description=description)
-        session.add(req); await session.commit()
+        req = UnbanRequest(
+            user_id=user_id,
+            photos=','.join(photos) if photos else None,
+            description=description
+        )
+        session.add(req)
+        await session.commit()
         for admin_id in ADMIN_IDS:
             try:
-                if photos: await callback.bot.send_media_group(admin_id, [InputMediaPhoto(media=pid) for pid in photos])
+                if photos:
+                    media = [InputMediaPhoto(media=pid) for pid in photos]
+                    await callback.bot.send_media_group(admin_id, media)
                 await callback.bot.send_message(admin_id,
-                    f"🔓 Разжалование #{req.id}\n👤 @{callback.from_user.username} ({user_id})\nЖалоба: {description}",
+                    f"🔓 Заявка на разжалование #{req.id}\n"
+                    f"Пользователь: @{callback.from_user.username} ({user_id})\n"
+                    f"Жалоба: {description}",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(text="✅ Одобрить", callback_data=f"unban_approve_{req.id}"),
-                         InlineKeyboardButton(text="❌ Отклонить", callback_data=f"unban_reject_{req.id}")]]))
-            except: pass
-    await callback.message.answer("Заявка отправлена.")
+                         InlineKeyboardButton(text="❌ Отклонить", callback_data=f"unban_reject_{req.id}")]
+                    ]))
+            except Exception as e:
+                print(f"Ошибка уведомления админа: {e}")
+    await callback.message.answer("Заявка на разжалование отправлена администратору.")
     await state.clear()
 
 @router.callback_query(UnbanProcess.confirm, F.data == "unban_cancel")
-async def unban_cancel(callback: CallbackQuery, state: FSMContext): await callback.message.answer("Отменено."); await state.clear()
+async def unban_cancel(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("Разжалование отменено.")
+    await state.clear()
+
 @router.callback_query(F.data == "unban_ignore")
-async def unban_ignore(callback: CallbackQuery): await callback.answer("Ок")
+async def unban_ignore(callback: CallbackQuery):
+    await callback.answer("Ок")
