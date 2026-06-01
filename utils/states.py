@@ -73,3 +73,6 @@ class AdminRefillProduct(StatesGroup):
     category_id = State()
     product_id = State()
     content = State()
+
+class AdminReplaceSelectPurchase(StatesGroup):
+    purchase_id = State()
