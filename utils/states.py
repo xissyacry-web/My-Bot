@@ -68,3 +68,8 @@ class AdminReplaceApprove(StatesGroup):
 
 class AdminReplaceReject(StatesGroup):
     reason = State()
+
+class AdminRefillProduct(StatesGroup):
+    category_id = State()
+    product_id = State()
+    content = State()
