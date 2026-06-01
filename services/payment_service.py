@@ -20,8 +20,7 @@ async def create_invoice(amount: float, description: str = "Пополнение
             else:
                 error = data.get("error", {})
                 if error.get("name") == "AMOUNT_TOO_SMALL":
-                    min_amount = error.get("min_invoice_amount_in_usd", 0.01)
-                    raise Exception(f"Минимальная сумма пополнения: {min_amount} USDT")
+                    raise Exception("Минимальная сумма пополнения: 0.011$")
                 else:
                     raise Exception(f"Ошибка Crypto Bot: {error.get('name', 'неизвестная ошибка')}")
 
