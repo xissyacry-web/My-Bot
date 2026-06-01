@@ -18,7 +18,12 @@ async def create_invoice(amount: float, description: str = "Пополнение
             if data.get("ok"):
                 return data["result"]
             else:
-                raise Exception(f"Crypto Bot error: {data}")
+                error = data.get("error", {})
+                if error.get("name") == "AMOUNT_TOO_SMALL":
+                    min_amount = error.get("min_invoice_amount_in_usd", 0.01)
+                    raise Exception(f"Минимальная сумма пополнения: {min_amount} USDT")
+                else:
+                    raise Exception(f"Ошибка Crypto Bot: {error.get('name', 'неизвестная ошибка')}")
 
 async def get_invoice(invoice_id: int) -> dict:
     headers = {"Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN}
