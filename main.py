@@ -43,6 +43,9 @@ async def payment_checker(bot: Bot):
                             user.balance += inv.amount
                             try: await bot.send_message(inv.user_id, f"✅ Платёж на {inv.amount} USDT зачислен!")
                             except: pass
+                            # Логируем пополнение в лог-канал
+                            from services.log_service import log_refill
+                            await log_refill(bot, inv.user_id, "", inv.amount)
                     elif data and data['status'] == 'expired':
                         inv.status = 'expired'
                 await session.commit()
