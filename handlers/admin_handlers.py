@@ -9,7 +9,6 @@ from config import ADMIN_IDS
 from utils.states import *
 from services.product_service import get_categories, get_products_by_category
 from sqlalchemy import select, func
-import os
 
 router = Router()
 VERSION = "v1.0.8"
@@ -17,7 +16,7 @@ VERSION = "v1.0.8"
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
-# ---------- ГЛАВНОЕ МЕНЮ АДМИНА ----------
+# ---------- ГЛАВНОЕ МЕНЮ ----------
 @router.message(F.text == "/admin")
 async def admin_panel(message: Message):
     if not is_admin(message.from_user.id): return
@@ -193,7 +192,7 @@ async def ap_file(message: Message, state: FSMContext):
     await message.answer(f"✅ Товар '{data['name']}' добавлен!")
     await state.clear()
 
-# ---------- ПОПОЛНЕНИЕ ТОВАРА (ДОБАВЛЕНИЕ СТРОК) ----------
+# ---------- ПОПОЛНЕНИЕ ТОВАРА ----------
 @router.callback_query(F.data == "admin_refill_product")
 async def refill_prod_cat(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as session:
@@ -338,7 +337,7 @@ async def del_prod_exec(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Товар не найден")
     await state.clear()
 
-# ---------- УДАЛЕНИЕ КАТЕГОРИИ (БЕЗОПАСНОЕ) ----------
+# ---------- УДАЛЕНИЕ КАТЕГОРИИ ----------
 @router.callback_query(F.data == "admin_delete_category")
 async def del_cat(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as session:
@@ -528,7 +527,6 @@ async def user_bal_amount(message: Message, state: FSMContext):
         if user:
             user.balance += amount
             await session.commit()
-            # Логируем пополнение (отправка в лог-канал)
             from services.log_service import log_refill
             await log_refill(message.bot, uid, "", amount)
             action = "пополнен" if amount >= 0 else "списан"
@@ -587,7 +585,7 @@ async def user_ban_exec(message: Message, state: FSMContext):
             await message.answer("Пользователь не найден.")
     await state.clear()
 
-# ---------- ОБРАБОТКА РАЗЖАЛОВАНИЙ ----------
+# ---------- РАЗЖАЛОВАНИЕ ----------
 @router.callback_query(F.data.startswith("unban_approve_"))
 async def unban_approve(callback: CallbackQuery):
     req_id = int(callback.data.split("_")[2])
@@ -620,7 +618,7 @@ async def unban_reject(callback: CallbackQuery):
         await callback.message.edit_text(f"❌ Заявка #{req_id} отклонена.")
     await callback.answer()
 
-# ---------- ЗАЯВКИ НА ЗАМЕНУ (АДМИН) ----------
+# ========== ЗАМЕНА (АДМИН, НОВАЯ ЛОГИКА) ==========
 @router.callback_query(F.data == "admin_replaces")
 async def admin_replaces(callback: CallbackQuery):
     async with AsyncSessionLocal() as session:
@@ -644,15 +642,58 @@ async def admin_replaces(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("replace_approve_"))
 async def replace_approve(callback: CallbackQuery, state: FSMContext):
     rid = int(callback.data.split("_")[2])
-    await callback.message.answer("Введите сообщение для пользователя (можно прикрепить файл):")
-    await state.set_state(AdminReplaceApprove.message)
+    async with AsyncSessionLocal() as session:
+        req = await session.get(ReplaceRequest, rid)
+        if not req or req.status != 'pending':
+            await callback.answer("Заявка уже обработана.")
+            return
+        purchases = (await session.execute(
+            select(Purchase).where(Purchase.user_id == req.user_id, Purchase.status == 'completed')
+            .order_by(Purchase.purchased_at.desc())
+        )).scalars().all()
+        if not purchases:
+            await callback.answer("У пользователя нет завершённых покупок.", show_alert=True)
+            return
+        builder = InlineKeyboardBuilder()
+        for p in purchases:
+            product = await session.get(Product, p.product_id)
+            pname = product.name if product else "удалён"
+            builder.button(
+                text=f"{pname} | {p.price}$ | {p.purchased_at.strftime('%d.%m.%y')}",
+                callback_data=f"select_purchase_{rid}_{p.id}"
+            )
+        builder.adjust(1)
+        await callback.message.edit_text(
+            "Выберите покупку, за которую возвращаются средства:",
+            reply_markup=builder.as_markup()
+        )
+    await state.set_state(AdminReplaceSelectPurchase.purchase_id)
     await state.update_data(req_id=rid)
+    await callback.answer()
+
+@router.callback_query(AdminReplaceSelectPurchase.purchase_id, F.data.startswith("select_purchase_"))
+async def purchase_selected(callback: CallbackQuery, state: FSMContext):
+    data_parts = callback.data.split("_")
+    rid = int(data_parts[2])
+    pid = int(data_parts[3])
+    async with AsyncSessionLocal() as session:
+        purchase = await session.get(Purchase, pid)
+        if not purchase:
+            await callback.answer("Покупка не найдена")
+            return
+        refund_amount = purchase.price
+        await state.update_data(refund_amount=refund_amount, purchase_id=pid)
+        await callback.message.answer(
+            f"Выбрана покупка на сумму {refund_amount:.2f}$.\nТеперь введите сообщение пользователю (можно прикрепить файл):"
+        )
+        await state.set_state(AdminReplaceApprove.message)
     await callback.answer()
 
 @router.message(AdminReplaceApprove.message)
 async def replace_approve_msg(message: Message, state: FSMContext):
     data = await state.get_data()
     rid = data['req_id']
+    refund_amount = data.get('refund_amount', 0.0)
     file_id = None
     if message.document:
         file_id = message.document.file_id
@@ -664,19 +705,19 @@ async def replace_approve_msg(message: Message, state: FSMContext):
             await message.answer("Заявка уже обработана.")
             await state.clear()
             return
+        user = await session.get(User, req.user_id)
+        if user:
+            user.balance += refund_amount
         req.status = 'approved'
         req.admin_comment = message.text or ""
         await session.commit()
         try:
-            await message.bot.send_message(req.user_id, f"✅ Замена #{rid} одобрена.\nАдминистратор: {message.text or 'без текста'}")
+            await message.bot.send_message(req.user_id, f"✅ Замена #{rid} одобрена. На баланс возвращено {refund_amount:.2f}$.\nАдминистратор: {message.text or 'без текста'}")
             if file_id:
-                try:
-                    await message.bot.send_document(req.user_id, file_id)
-                except:
-                    pass
-        except:
-            pass
-    await message.answer("Одобрено.")
+                try: await message.bot.send_document(req.user_id, file_id)
+                except: pass
+        except: pass
+    await message.answer(f"Одобрено, возвращено {refund_amount:.2f}$.")
     await state.clear()
 
 @router.callback_query(F.data.startswith("replace_reject_"))
