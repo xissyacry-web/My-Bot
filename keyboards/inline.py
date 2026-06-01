@@ -25,6 +25,7 @@ def payment_keyboard(pay_url):
 def admin_main_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="➕ Добавить товар", callback_data="admin_add_product")
+    builder.button(text="✏️ Пополнить товар", callback_data="admin_refill_product")
     builder.button(text="➕ Добавить категорию", callback_data="admin_add_category")
     builder.button(text="🗑 Удалить товар", callback_data="admin_delete_product")
     builder.button(text="🗑 Удалить категорию", callback_data="admin_delete_category")
