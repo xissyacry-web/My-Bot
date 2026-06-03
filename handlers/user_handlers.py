@@ -22,6 +22,9 @@ from sqlalchemy import select
 
 router = Router()
 
+# Динамический экземпляр Emojis — HTML‑теги генерируются при каждом вызове
+emoji = Emojis()
+
 async def ensure_user(user_id: int, username: str = None):
     async with AsyncSessionLocal() as session:
         user = await get_user(session, user_id)
@@ -45,7 +48,7 @@ async def cmd_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
     await ensure_user(message.from_user.id, message.from_user.username)
     text = (
-        f"{Emojis.HEART} <b>Добро пожаловать!</b>\n"
+        f"{emoji.HEART} <b>Добро пожаловать!</b>\n"
         f"<i>We strictly comply with all Telegram rules.</i>"
     )
     await message.answer(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
@@ -54,7 +57,7 @@ async def cmd_start(message: Message, state: FSMContext):
 async def back_to_main(callback: CallbackQuery, state: FSMContext):
     await delete_previous_message(callback)
     text = (
-        f"{Emojis.HEART} <b>Добро пожаловать!</b>\n"
+        f"{emoji.HEART} <b>Добро пожаловать!</b>\n"
         f"<i>We strictly comply with all Telegram rules.</i>"
     )
     await callback.message.answer(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
@@ -67,10 +70,10 @@ async def menu_profile(callback: CallbackQuery):
     user = await ensure_user(callback.from_user.id, callback.from_user.username)
     days = (datetime.utcnow() - user.registered_at).days
     text = (
-        f"{Emojis.PROFILE} <b>KTN • Профиль</b>\n\n"
-        f"{Emojis.INFO} ID: <code>{user.user_id}</code>\n"
-        f"{Emojis.COIN_1} Баланс: <b>{user.balance:.2f} $</b>\n"
-        f"{Emojis.CLOCK} Регистрация: {user.registered_at.strftime('%d.%m.%Y, %H:%M')} ({days} дн.)"
+        f"{emoji.PROFILE} <b>Профиль</b>\n\n"
+        f"{emoji.INFO} ID: <code>{user.user_id}</code>\n"
+        f"{emoji.COIN_1} Баланс: <b>{user.balance:.2f} $</b>\n"
+        f"{emoji.CLOCK} Регистрация: {user.registered_at.strftime('%d.%m.%Y, %H:%M')} ({days} дн.)"
     )
     await callback.message.answer(text, reply_markup=profile_keyboard(), parse_mode="HTML")
     await callback.answer()
@@ -83,12 +86,12 @@ async def menu_catalog(callback: CallbackQuery):
         cats = await get_categories(session, parent_id=None)
         if cats:
             await callback.message.answer(
-                f"{Emojis.CATALOG} <b>Выберите категорию:</b>",
+                f"{emoji.CATALOG} <b>Выберите категорию:</b>",
                 reply_markup=categories_keyboard(cats), parse_mode="HTML"
             )
         else:
             await callback.message.answer(
-                f"{Emojis.EMPTY} Пока пусто", parse_mode="HTML"
+                f"{emoji.EMPTY} Пока пусто", parse_mode="HTML"
             )
     await callback.answer()
 
@@ -99,29 +102,29 @@ async def category_selected(callback: CallbackQuery):
         from database.models import Category
         cat = await session.get(Category, cat_id)
         if not cat:
-            await callback.answer(f"{Emojis.BAN} Категория не найдена", show_alert=True)
+            await callback.answer(f"{emoji.BAN} Категория не найдена", show_alert=True)
             return
         subcats = await get_categories(session, parent_id=cat_id)
         if subcats:
             await callback.message.edit_text(
-                f"{Emojis.CATALOG} <b>Выберите подкатегорию:</b>",
+                f"{emoji.CATALOG} <b>Выберите подкатегорию:</b>",
                 reply_markup=categories_keyboard(subcats), parse_mode="HTML"
             )
         else:
             products = await get_products_by_category(session, cat_id)
             if products:
-                text = f"{Emojis.CATALOG} <b>Доступные товары:</b>\n\n"
+                text = f"{emoji.CATALOG} <b>Доступные товары:</b>\n\n"
                 for p in products:
                     qty = "∞" if p.quantity == 0 else str(p.quantity)
                     desc = html.escape(p.description) if p.description else "без описания"
                     text += (
-                        f"{Emojis.BOX_1} {html.escape(p.name)}\n"
-                        f"   {Emojis.COIN_1} {p.price}$ • {qty} шт.\n"
+                        f"{emoji.BOX_1} {html.escape(p.name)}\n"
+                        f"   {emoji.COIN_1} {p.price}$ • {qty} шт.\n"
                         f"   📝 {desc}\n\n"
                     )
                 await callback.message.edit_text(text, reply_markup=products_keyboard(products), parse_mode="HTML")
             else:
-                await callback.answer(f"{Emojis.EMPTY} Пока пусто", show_alert=True)
+                await callback.answer(f"{emoji.EMPTY} Пока пусто", show_alert=True)
     await callback.answer()
 
 @router.callback_query(F.data == "back_to_categories")
@@ -130,12 +133,12 @@ async def back_to_categories(callback: CallbackQuery):
         cats = await get_categories(session, parent_id=None)
         if cats:
             await callback.message.edit_text(
-                f"{Emojis.CATALOG} <b>Категории:</b>",
+                f"{emoji.CATALOG} <b>Категории:</b>",
                 reply_markup=categories_keyboard(cats), parse_mode="HTML"
             )
         else:
             await callback.message.edit_text(
-                f"{Emojis.EMPTY} Пока пусто", parse_mode="HTML"
+                f"{emoji.EMPTY} Пока пусто", parse_mode="HTML"
             )
     await callback.answer()
 
@@ -146,14 +149,14 @@ async def buy_start(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as session:
         product = await session.get(Product, product_id)
         if not product or not product.is_available:
-            await callback.answer(f"{Emojis.BAN} Товар недоступен", show_alert=True)
+            await callback.answer(f"{emoji.BAN} Товар недоступен", show_alert=True)
             return
         qty = "∞" if product.quantity == 0 else str(product.quantity)
         await callback.message.answer(
-            f"{Emojis.CART} <b>{html.escape(product.name)}</b>\n"
-            f"{Emojis.COIN_1} Цена: {product.price}$ за шт.\n"
+            f"{emoji.CART} <b>{html.escape(product.name)}</b>\n"
+            f"{emoji.COIN_1} Цена: {product.price}$ за шт.\n"
             f"📝 {html.escape(product.description or 'Описание отсутствует')}\n\n"
-            f"{Emojis.BOX_1} В наличии: {qty} шт.\n\n"
+            f"{emoji.BOX_1} В наличии: {qty} шт.\n\n"
             f"<i>Выберите количество или введите вручную:</i>",
             parse_mode="HTML",
             reply_markup=buy_quantity_keyboard(product_id)
@@ -184,15 +187,15 @@ async def process_purchase(message: Message, user_id: int, product_id: int, amou
             qleft = result.get('quantity_left', 0)
             qleft_str = f"{qleft} шт." if isinstance(qleft, int) and qleft > 0 else ("∞" if qleft == 0 else qleft)
             text = (
-                f"{Emojis.CHECK} <b>Куплено {amount} шт.</b>\n"
+                f"{emoji.CHECK} <b>Куплено {amount} шт.</b>\n"
                 f"Товар: {result['product_name']}\n"
-                f"{Emojis.COIN_1} Остаток: {result['balance']:.2f}$\n"
-                f"{Emojis.BOX_1} Осталось товара: {qleft_str}"
+                f"{emoji.COIN_1} Остаток: {result['balance']:.2f}$\n"
+                f"{emoji.BOX_1} Осталось товара: {qleft_str}"
             )
             await message.answer(text, parse_mode="HTML")
             if result.get("content"):
                 await message.answer(
-                    f"{Emojis.CART} <b>Ваш товар:</b>\n{html.escape(result['content'])}",
+                    f"{emoji.CART} <b>Ваш товар:</b>\n{html.escape(result['content'])}",
                     parse_mode="HTML"
                 )
             if result.get("file_id"):
@@ -200,13 +203,13 @@ async def process_purchase(message: Message, user_id: int, product_id: int, amou
                 except: pass
             await log_purchase(message.bot, user_id, message.from_user.username, result['product_name'], amount, result.get('price', 0))
         else:
-            await message.answer(f"{Emojis.BAN} {result['error']}")
+            await message.answer(f"{emoji.BAN} {result['error']}")
 
 # ========== ПОПОЛНЕНИЕ ==========
 @router.callback_query(F.data == "menu_topup")
 async def menu_topup(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
-        f"{Emojis.COIN_1} Введите сумму пополнения в $:",
+        f"{emoji.COIN_1} Введите сумму пополнения в $:",
         parse_mode="HTML"
     )
     await state.set_state(ReplenishBalance.amount)
@@ -230,7 +233,7 @@ async def process_amount(message: Message, state: FSMContext):
         session.add(Invoice(user_id=message.from_user.id, invoice_id=inv['invoice_id'], amount=amount))
         await session.commit()
     await message.answer(
-        f"{Emojis.CHECK} <b>Счёт выставлен!</b> Время на оплату: 10 минут.\n"
+        f"{emoji.CHECK} <b>Счёт выставлен!</b> Время на оплату: 10 минут.\n"
         f"Оплатите и нажмите «Проверить оплату».",
         reply_markup=payment_keyboard(inv['pay_url']), parse_mode="HTML"
     )
@@ -243,7 +246,7 @@ async def check_payment(callback: CallbackQuery):
         inv = (await session.execute(select(Invoice).where(Invoice.user_id == user_id, Invoice.status == 'active')
                                      .order_by(Invoice.created_at.desc()).limit(1))).scalar_one_or_none()
         if not inv:
-            await callback.answer(f"{Emojis.BAN} Нет активных счетов.", show_alert=True)
+            await callback.answer(f"{emoji.BAN} Нет активных счетов.", show_alert=True)
             return
         from services.payment_service import get_invoice
         data = await get_invoice(inv.invoice_id)
@@ -253,7 +256,7 @@ async def check_payment(callback: CallbackQuery):
             user.balance += inv.amount
             await session.commit()
             await callback.message.answer(
-                f"{Emojis.CHECK} Зачислено {inv.amount:.2f}$", parse_mode="HTML"
+                f"{emoji.CHECK} Зачислено {inv.amount:.2f}$", parse_mode="HTML"
             )
             await log_refill(callback.bot, user_id, callback.from_user.username, inv.amount)
         elif data and data['status'] == 'expired':
@@ -268,7 +271,7 @@ async def check_payment(callback: CallbackQuery):
 @router.callback_query(F.data == "menu_promo")
 async def menu_promo(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
-        f"{Emojis.STAR_GOLD} Введите промокод:",
+        f"{emoji.STAR_GOLD} Введите промокод:",
         parse_mode="HTML"
     )
     await state.set_state(PromocodeInput.code)
@@ -287,15 +290,15 @@ async def promocode_apply(message: Message, state: FSMContext):
         promo = await session.get(Promocode, code)
         used = [c.strip() for c in user.used_promocodes.split(',') if c.strip()]
         if code in used:
-            await message.answer(f"{Emojis.BAN} Уже использован.", parse_mode="HTML")
+            await message.answer(f"{emoji.BAN} Уже использован.", parse_mode="HTML")
             await state.clear()
             return
         if not promo or not promo.is_active:
-            await message.answer(f"{Emojis.BAN} Недействителен.", parse_mode="HTML")
+            await message.answer(f"{emoji.BAN} Недействителен.", parse_mode="HTML")
         elif promo.expires_at and promo.expires_at < datetime.utcnow():
-            await message.answer(f"{Emojis.CLOCK} Истёк.", parse_mode="HTML")
+            await message.answer(f"{emoji.CLOCK} Истёк.", parse_mode="HTML")
         elif promo.max_activations is not None and promo.used_count >= promo.max_activations:
-            await message.answer(f"{Emojis.BAN} Лимит исчерпан.", parse_mode="HTML")
+            await message.answer(f"{emoji.BAN} Лимит исчерпан.", parse_mode="HTML")
         else:
             user.balance += promo.bonus_amount
             promo.used_count += 1
@@ -303,7 +306,7 @@ async def promocode_apply(message: Message, state: FSMContext):
             user.used_promocodes = ','.join(used)
             await session.commit()
             await message.answer(
-                f"{Emojis.STAR_GOLD} Промокод активирован! +{promo.bonus_amount:.2f}$",
+                f"{emoji.STAR_GOLD} Промокод активирован! +{promo.bonus_amount:.2f}$",
                 parse_mode="HTML"
             )
             await log_promo(message.bot, user_id, message.from_user.username, code, promo.bonus_amount)
@@ -320,18 +323,18 @@ async def menu_history(callback: CallbackQuery):
         )).scalars().all()
         if not purchases:
             await callback.message.edit_text(
-                f"{Emojis.EMPTY} Покупок пока нет.",
+                f"{emoji.EMPTY} Покупок пока нет.",
                 parse_mode="HTML"
             )
             return
-        text = f"{Emojis.CLOCK} <b>Последние покупки:</b>\n\n"
+        text = f"{emoji.CLOCK} <b>Последние покупки:</b>\n\n"
         for p in purchases:
             product = await session.get(Product, p.product_id)
             pname = html.escape(product.name) if product else "удалённый товар"
             text += (
-                f"{Emojis.CART} ID {p.id} | {pname}\n"
-                f"{Emojis.COIN_1} {p.price}$ x {p.amount} шт.\n"
-                f"{Emojis.CLOCK} {p.purchased_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+                f"{emoji.CART} ID {p.id} | {pname}\n"
+                f"{emoji.COIN_1} {p.price}$ x {p.amount} шт.\n"
+                f"{emoji.CLOCK} {p.purchased_at.strftime('%d.%m.%Y %H:%M')}\n\n"
             )
         await callback.message.edit_text(text, parse_mode="HTML")
 
@@ -346,20 +349,20 @@ async def menu_operations(callback: CallbackQuery):
         )).scalars().all()
         if not invoices:
             await callback.message.edit_text(
-                f"{Emojis.EMPTY} Операций с балансом пока не было.",
+                f"{emoji.EMPTY} Операций с балансом пока не было.",
                 parse_mode="HTML"
             )
             return
-        text = f"{Emojis.COIN_1} <b>История пополнений:</b>\n\n"
+        text = f"{emoji.COIN_1} <b>История пополнений:</b>\n\n"
         for inv in invoices:
-            text += f"{Emojis.CHECK} {inv.amount:.2f}$ • {inv.created_at.strftime('%d.%m.%Y %H:%M')}\n"
+            text += f"{emoji.CHECK} {inv.amount:.2f}$ • {inv.created_at.strftime('%d.%m.%Y %H:%M')}\n"
         await callback.message.edit_text(text, parse_mode="HTML")
 
 # ========== ПОДДЕРЖКА ==========
 @router.callback_query(F.data == "menu_support")
 async def menu_support(callback: CallbackQuery):
     await callback.message.edit_text(
-        f"{Emojis.INFO} Свяжитесь с поддержкой: @XissyaSup",
+        f"{emoji.INFO} Свяжитесь с поддержкой: @XissyaSup",
         parse_mode="HTML"
     )
     await callback.answer()
@@ -372,10 +375,10 @@ async def menu_replace(callback: CallbackQuery, state: FSMContext):
             select(Purchase).where(Purchase.user_id == callback.from_user.id, Purchase.status == 'completed')
         )).first()
         if not exists:
-            await callback.answer(f"{Emojis.BAN} Нет завершённых покупок.", show_alert=True)
+            await callback.answer(f"{emoji.BAN} Нет завершённых покупок.", show_alert=True)
             return
     await callback.message.answer(
-        f"{Emojis.REPLACE} Введите номер лога и время покупки (одним сообщением):",
+        f"{emoji.REPLACE} Введите номер лога и время покупки (одним сообщением):",
         parse_mode="HTML"
     )
     await state.set_state(ReplaceRequestStates.log_time)
@@ -385,7 +388,7 @@ async def menu_replace(callback: CallbackQuery, state: FSMContext):
 async def replace_log_time(message: Message, state: FSMContext):
     await state.update_data(log_info=message.text)
     await message.answer(
-        f"{Emojis.REPLACE} Отправьте фото (до 5). Когда закончите, напишите 'готово'.",
+        f"{emoji.REPLACE} Отправьте фото (до 5). Когда закончите, напишите 'готово'.",
         parse_mode="HTML"
     )
     await state.set_state(ReplaceRequestStates.photos)
@@ -397,14 +400,14 @@ async def replace_photo(message: Message, state: FSMContext):
     photos = data.get('photos', [])
     if len(photos) >= 5:
         await message.answer(
-            f"{Emojis.WARNING} Максимум 5 фото. Напишите 'готово'.",
+            f"{emoji.WARNING} Максимум 5 фото. Напишите 'готово'.",
             parse_mode="HTML"
         )
         return
     photos.append(message.photo[-1].file_id)
     await state.update_data(photos=photos)
     await message.answer(
-        f"{Emojis.NUM_1} Фото {len(photos)} получено. Отправьте ещё или напишите 'готово'.",
+        f"{emoji.NUM_1} Фото {len(photos)} получено. Отправьте ещё или напишите 'готово'.",
         parse_mode="HTML"
     )
 
@@ -440,7 +443,7 @@ async def replace_complaint(message: Message, state: FSMContext):
         for admin_id in ADMIN_IDS:
             try:
                 caption = (
-                    f"{Emojis.REPLACE} Заявка на замену #{req.id}\n"
+                    f"{emoji.REPLACE} Заявка на замену #{req.id}\n"
                     f"👤 @{html.escape(message.from_user.username or '')} ({message.from_user.id})\n"
                     f"Лог/время: {html.escape(log_info)}\n"
                     f"Жалоба: {html.escape(complaint)}"
@@ -456,7 +459,7 @@ async def replace_complaint(message: Message, state: FSMContext):
             except Exception as e:
                 print(f"Ошибка уведомления админа: {e}")
     await message.answer(
-        f"{Emojis.CHECK} Заявка отправлена. Ожидайте решения.",
+        f"{emoji.CHECK} Заявка отправлена. Ожидайте решения.",
         parse_mode="HTML"
     )
     await state.clear()
