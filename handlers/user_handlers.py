@@ -6,7 +6,8 @@ from aiogram.fsm.context import FSMContext
 from datetime import datetime
 from database.database import AsyncSessionLocal
 from database.models import User, Invoice, Promocode, Purchase, Product, UnbanRequest
-from keyboards.inline import main_menu_keyboard, categories_keyboard, products_keyboard, payment_keyboard
+from keyboards.reply import main_menu
+from keyboards.inline import categories_keyboard, products_keyboard, payment_keyboard
 from services.user_service import get_user, create_user
 from services.product_service import get_categories, get_products_by_category, buy_product, get_all_products_text
 from services.payment_service import create_invoice
@@ -26,50 +27,46 @@ async def ensure_user(user_id: int, username: str = None):
             user = await create_user(session, user_id, username)
         return user
 
-async def clear_state(callback: CallbackQuery, state: FSMContext):
+async def clear_state_on_menu(message: Message, state: FSMContext):
     if await state.get_state():
         await state.clear()
 
 # ========== СТАРТ ==========
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
-    await state.clear()
-    await ensure_user(message.from_user.id, message.from_user.username)
+    await clear_state_on_menu(message, state)
+    async with AsyncSessionLocal() as session:
+        user = await get_user(session, message.from_user.id)
+        if not user:
+            await create_user(session, message.from_user.id, message.from_user.username)
+            await log_register(message.bot, message.from_user.id, message.from_user.username)
     text = (
         f"{tg_emoji('catalog', '🛒')} Добро пожаловать в магазин!\n"
-        f"Выберите действие:"
+        f"Используйте кнопки ниже для навигации."
     )
-    await message.answer(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
+    await message.answer(text, reply_markup=main_menu(), parse_mode="HTML")
 
-# ========== ГЛАВНОЕ МЕНЮ ==========
-@router.callback_query(F.data == "back_to_main")
-async def back_to_main(callback: CallbackQuery, state: FSMContext):
-    await clear_state(callback, state)
-    await callback.message.edit_text(
-        f"{tg_emoji('catalog', '🛒')} Главное меню:",
-        reply_markup=main_menu_keyboard(), parse_mode="HTML"
-    )
-    await callback.answer()
-
-@router.callback_query(F.data == "menu_catalog")
-async def menu_catalog(callback: CallbackQuery):
+# ========== ГЛАВНОЕ МЕНЮ (reply-кнопки) ==========
+@router.message(F.text == "📋 Каталог")
+async def menu_catalog(message: Message, state: FSMContext):
+    await clear_state_on_menu(message, state)
     async with AsyncSessionLocal() as session:
         cats = await get_categories(session, parent_id=None)
         if cats:
-            await callback.message.edit_text(
+            await message.answer(
                 f"{tg_emoji('catalog', '🛒')} Выберите категорию:",
                 reply_markup=categories_keyboard(cats), parse_mode="HTML"
             )
         else:
-            await callback.message.edit_text(
+            await message.answer(
                 f"{tg_emoji('warning', '⚠️')} Каталог пуст.",
-                reply_markup=main_menu_keyboard(), parse_mode="HTML"
+                parse_mode="HTML"
             )
-    await callback.answer()
 
-@router.callback_query(F.data == "menu_profile")
-async def menu_profile(callback: CallbackQuery):
-    user = await ensure_user(callback.from_user.id, callback.from_user.username)
+@router.message(F.text == "👤 Профиль")
+async def menu_profile(message: Message, state: FSMContext):
+    await clear_state_on_menu(message, state)
+    user = await ensure_user(message.from_user.id, message.from_user.username)
     days = (datetime.utcnow() - user.registered_at).days
     text = (
         f"{tg_emoji('profile', '👤')} Профиль\n"
@@ -78,49 +75,49 @@ async def menu_profile(callback: CallbackQuery):
         f"Баланс: {user.balance:.2f}$\n"
         f"Регистрация: {user.registered_at.strftime('%d.%m.%Y')} ({days} дн.)"
     )
-    await callback.message.edit_text(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
-    await callback.answer()
+    await message.answer(text, parse_mode="HTML")
 
-@router.callback_query(F.data == "menu_stock")
-async def menu_stock(callback: CallbackQuery):
+@router.message(F.text == "📦 Наличие")
+async def menu_stock(message: Message, state: FSMContext):
+    await clear_state_on_menu(message, state)
     async with AsyncSessionLocal() as session:
         stock_text = await get_all_products_text(session)
-    await callback.message.edit_text(
+    await message.answer(
         f"{tg_emoji('stock', '📦')} Наличие товаров:\n\n{stock_text}",
-        reply_markup=main_menu_keyboard(), parse_mode="HTML"
+        parse_mode="HTML"
     )
-    await callback.answer()
 
-@router.callback_query(F.data == "menu_topup")
-async def menu_topup(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer(
+@router.message(F.text == "💳 Пополнить")
+async def menu_topup(message: Message, state: FSMContext):
+    await clear_state_on_menu(message, state)
+    await message.answer(
         f"{tg_emoji('topup', '✅')} Введите сумму пополнения в $:",
         parse_mode="HTML"
     )
     await state.set_state(ReplenishBalance.amount)
-    await callback.answer()
 
-@router.callback_query(F.data == "menu_promo")
-async def menu_promo(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer(
+@router.message(F.text == "🎁 Промокод")
+async def menu_promo(message: Message, state: FSMContext):
+    await clear_state_on_menu(message, state)
+    await message.answer(
         f"{tg_emoji('promo', '🎁')} Введите промокод:",
         parse_mode="HTML"
     )
     await state.set_state(PromocodeInput.code)
-    await callback.answer()
 
-@router.callback_query(F.data == "menu_history")
-async def menu_history(callback: CallbackQuery):
-    user_id = callback.from_user.id
+@router.message(F.text == "📜 История")
+async def menu_history(message: Message, state: FSMContext):
+    await clear_state_on_menu(message, state)
+    user_id = message.from_user.id
     async with AsyncSessionLocal() as session:
         purchases = (await session.execute(
             select(Purchase).where(Purchase.user_id == user_id)
             .order_by(Purchase.purchased_at.desc()).limit(10)
         )).scalars().all()
         if not purchases:
-            await callback.message.edit_text(
+            await message.answer(
                 f"{tg_emoji('history', '📁')} Покупок пока нет.",
-                reply_markup=main_menu_keyboard(), parse_mode="HTML"
+                parse_mode="HTML"
             )
             return
         text = f"{tg_emoji('history', '📁')} Последние покупки:\n\n"
@@ -132,18 +129,17 @@ async def menu_history(callback: CallbackQuery):
                 f"💰 {p.price}$ x {p.amount} шт.\n"
                 f"{tg_emoji('time', '🕓')} {p.purchased_at.strftime('%d.%m.%Y %H:%M')}\n\n"
             )
-        await callback.message.edit_text(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
-    await callback.answer()
+        await message.answer(text, parse_mode="HTML")
 
-@router.callback_query(F.data == "menu_support")
-async def menu_support(callback: CallbackQuery):
-    await callback.message.edit_text(
-        f"{tg_emoji('support', '🧑‍💻')} Свяжитесь с поддержкой: @Xissya",
-        reply_markup=main_menu_keyboard(), parse_mode="HTML"
+@router.message(F.text == "🆘 Поддержка")
+async def menu_support(message: Message, state: FSMContext):
+    await clear_state_on_menu(message, state)
+    await message.answer(
+        f"{tg_emoji('support', '🧑‍💻')} Свяжитесь с поддержкой: @XissyaSup",
+        parse_mode="HTML"
     )
-    await callback.answer()
 
-# ========== КАТАЛОГ ==========
+# ========== КАТАЛОГ (инлайн-клавиатура) ==========
 @router.callback_query(F.data.startswith("cat_"))
 async def category_selected(callback: CallbackQuery):
     cat_id = int(callback.data.split("_")[1])
@@ -189,7 +185,7 @@ async def back_to_categories(callback: CallbackQuery):
         else:
             await callback.message.edit_text(
                 f"{tg_emoji('warning', '⚠️')} Каталог пуст.",
-                reply_markup=main_menu_keyboard(), parse_mode="HTML"
+                parse_mode="HTML"
             )
     await callback.answer()
 
@@ -341,21 +337,21 @@ async def promocode_apply(message: Message, state: FSMContext):
     await state.clear()
 
 # ========== ЗАМЕНА ==========
-@router.callback_query(F.data == "menu_replace")
-async def menu_replace(callback: CallbackQuery, state: FSMContext):
+@router.message(F.text == "♻️ Замена")
+async def menu_replace(message: Message, state: FSMContext):
+    await clear_state_on_menu(message, state)
     async with AsyncSessionLocal() as session:
         exists = (await session.execute(
-            select(Purchase).where(Purchase.user_id == callback.from_user.id, Purchase.status == 'completed')
+            select(Purchase).where(Purchase.user_id == message.from_user.id, Purchase.status == 'completed')
         )).first()
         if not exists:
-            await callback.answer("Нет завершённых покупок.", show_alert=True)
+            await message.answer("⚠️ Нет завершённых покупок для замены.")
             return
-    await callback.message.answer(
+    await message.answer(
         f"{tg_emoji('replace', '⚠️')} Введите номер лога и время покупки (одним сообщением):",
         parse_mode="HTML"
     )
     await state.set_state(ReplaceRequestStates.log_time)
-    await callback.answer()
 
 @router.message(ReplaceRequestStates.log_time)
 async def replace_log_time(message: Message, state: FSMContext):
