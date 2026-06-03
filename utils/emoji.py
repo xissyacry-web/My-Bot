@@ -1,0 +1,30 @@
+# utils/emoji.py
+# ID эмодзи из TranslucentPack (https://t.me/addemoji/TranslucentPack)
+EMOJI = {
+    "catalog": "5278613311858959074",   # 🛒
+    "profile": "5275979556308674886",   # 👤
+    "replace": "5276240711795107620",   # ⚠️
+    "stock": "5278540791336165644",     # 📦
+    "topup": "5278411813468269386",     # ✅
+    "promo": "5276422526350681413",     # 🎁
+    "history": "5278227821364275264",   # 📁
+    "support": "5276381204470329471",   # 🧑‍💻
+    "warning": "5276240711795107620",   # ⚠️
+    "ban": "5278578973595427038",       # 🚫
+    "unban": "5278602437001767574",     # 🔓
+    "star": "5276111746812112286",      # ⭐
+    "time": "5276412364458059956",      # 🕓
+    "search": "5276395476646653290",    # 🔍
+    "money": "5278411813468269386",     # ✅ (как topup)
+    "buy": "5278305362703835500",       # 🔗
+    "stats": "5278778882848220741",     # 📊
+    "admin": "5276127848644503161",     # 🤖
+    "back": "5278413853577734640",      # 🏠
+}
+
+def tg_emoji(emoji_key: str, fallback: str = "❓") -> str:
+    """Возвращает HTML-тег для премиум-эмодзи по ключу."""
+    emoji_id = EMOJI.get(emoji_key)
+    if emoji_id:
+        return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
+    return fallback
