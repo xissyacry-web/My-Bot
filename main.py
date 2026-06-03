@@ -7,17 +7,14 @@ from database.models import Invoice, User
 from services.payment_service import check_pending_invoices
 from handlers.user_handlers import router as user_router
 from handlers.admin_handlers import router as admin_router
+from config import ADMIN_IDS
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8961635368:AAGrLICFaRDceOFDa5RBIlY2274_DKtvs0k")
-ADMIN_IDS_STR = os.environ.get("ADMIN_IDS", "1073780833")
-ADMIN_IDS = [int(x.strip()) for x in ADMIN_IDS_STR.split(",") if x.strip()]
+ADMIN_IDS = [int(x) for x in os.environ.get("ADMIN_IDS", "1073780833").split(",")]
 
-if not BOT_TOKEN:
-    sys.exit(1)
+if not BOT_TOKEN: sys.exit(1)
 
-async def handle(request):
-    return web.Response(text="Bot is running")
-
+async def handle(request): return web.Response(text="Bot is running")
 async def start_web_server():
     app = web.Application()
     app.router.add_get('/', handle)
@@ -41,16 +38,14 @@ async def payment_checker(bot: Bot):
                         user = await session.get(User, inv.user_id)
                         if user:
                             user.balance += inv.amount
-                            try: await bot.send_message(inv.user_id, f"✅ Платёж на {inv.amount} USDT зачислен!")
+                            try: await bot.send_message(inv.user_id, f"✅ Платёж {inv.amount} USDT зачислен!")
                             except: pass
-                            # Логируем пополнение в лог-канал
                             from services.log_service import log_refill
                             await log_refill(bot, inv.user_id, "", inv.amount)
                     elif data and data['status'] == 'expired':
                         inv.status = 'expired'
                 await session.commit()
-        except Exception as e:
-            print(f"Payment checker error: {e}")
+        except Exception as e: print(f"Payment checker error: {e}")
         await asyncio.sleep(10)
 
 from aiogram import BaseMiddleware
