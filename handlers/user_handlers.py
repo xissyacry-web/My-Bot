@@ -464,6 +464,18 @@ async def replace_complaint(message: Message, state: FSMContext):
     )
     await state.clear()
 
+# ========== ТЕСТОВЫЙ ОБРАБОТЧИК ЭМОДЗИ ==========
+@router.message(F.text == "/test_emoji")
+async def test_emoji_handler(message: Message):
+    # Тестируем стандартный тег напрямую без вызова классов
+    direct_html = 'Тест напрямую: <tg-emoji emoji-id="5278611606756942667">❤️</tg-emoji>'
+    
+    # Тестируем через наш новый динамический класс
+    class_html = f"Тест через класс: {emoji.HEART}"
+    
+    await message.answer(direct_html, parse_mode="HTML")
+    await message.answer(class_html, parse_mode="HTML")
+
 # ========== РАЗЖАЛОВАНИЕ ==========
 @router.callback_query(F.data == "unban_request")
 async def unban_request(callback: CallbackQuery, state: FSMContext):
