@@ -9,7 +9,6 @@ from handlers.user_handlers import router as user_router
 from handlers.admin_handlers import router as admin_router
 from config import ADMIN_IDS
 
-# 👇 Новый токен здесь
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8961635368:AAEUcmP_BW1EiBcUS8ClI7_X3HRXU-MJeGs")
 ADMIN_IDS_STR = os.environ.get("ADMIN_IDS", "1073780833")
 ADMIN_IDS = [int(x.strip()) for x in ADMIN_IDS_STR.split(",") if x.strip()]
