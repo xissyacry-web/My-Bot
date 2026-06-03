@@ -9,7 +9,7 @@ from database.models import User, Product, Category, Promocode, UnbanRequest, In
 from config import ADMIN_IDS, VERSION
 from utils.states import *
 from services.product_service import get_categories, get_products_by_category
-from utils.emoji import tg_emoji
+from utils.emoji import Emojis
 from sqlalchemy import select, func, text
 import os, sqlite3, shutil, sys
 
@@ -137,11 +137,8 @@ async def add_prod(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminAddProduct.category_id)
 async def ap_cat(message: Message, state: FSMContext):
-    try:
-        cat_id = int(message.text)
-    except:
-        await message.answer("Введите число")
-        return
+    try: cat_id = int(message.text)
+    except: await message.answer("Введите число"); return
     async with AsyncSessionLocal() as session:
         if not await session.get(Category, cat_id):
             await message.answer("❌ Категория не найдена.")
@@ -164,11 +161,8 @@ async def ap_desc(message: Message, state: FSMContext):
 
 @router.message(AdminAddProduct.price)
 async def ap_price(message: Message, state: FSMContext):
-    try:
-        price = float(message.text)
-    except:
-        await message.answer("Введите число")
-        return
+    try: price = float(message.text)
+    except: await message.answer("Введите число"); return
     await state.update_data(price=price)
     await message.answer("Введите количество (0 – бесконечно):")
     await state.set_state(AdminAddProduct.quantity)
@@ -177,11 +171,8 @@ async def ap_price(message: Message, state: FSMContext):
 async def ap_qty(message: Message, state: FSMContext):
     try:
         qty = int(message.text)
-        if qty < 0:
-            raise ValueError
-    except:
-        await message.answer("Введите целое число (0 или больше)")
-        return
+        if qty < 0: raise ValueError
+    except: await message.answer("Введите целое число (0 или больше)"); return
     await state.update_data(quantity=qty)
     await message.answer("Отправьте текст товара (каждая непустая строка = одна единица) или '-' если товар только файлом:")
     await state.set_state(AdminAddProduct.content)
@@ -212,12 +203,9 @@ async def ap_file(message: Message, state: FSMContext):
     data = await state.get_data()
     quantity = data['quantity']
     content = data.get('content')
-    if message.document:
-        file_id = message.document.file_id
-    elif message.photo:
-        file_id = message.photo[-1].file_id
-    else:
-        file_id = None
+    if message.document: file_id = message.document.file_id
+    elif message.photo: file_id = message.photo[-1].file_id
+    else: file_id = None
     if not content and not file_id:
         await message.answer("❌ Нужен хотя бы текст или файл.")
         return
@@ -493,16 +481,13 @@ async def cat_parent(message: Message, state: FSMContext):
     data = await state.get_data()
     try:
         pid = int(message.text)
-        if pid == 0:
-            pid = None
+        if pid == 0: pid = None
         else:
             async with AsyncSessionLocal() as session:
                 if not await session.get(Category, pid):
                     await message.answer("❌ Родительская категория не найдена. Введите ID ещё раз или 0:")
                     return
-    except:
-        await message.answer("Введите число")
-        return
+    except: await message.answer("Введите число"); return
     async with AsyncSessionLocal() as session:
         cat = Category(name=data['name'], parent_id=pid)
         session.add(cat)
@@ -530,11 +515,8 @@ async def promo_code(message: Message, state: FSMContext):
 
 @router.message(AdminPromoAdd.amount)
 async def promo_amount(message: Message, state: FSMContext):
-    try:
-        amount = float(message.text)
-    except:
-        await message.answer("Введите число")
-        return
+    try: amount = float(message.text)
+    except: await message.answer("Введите число"); return
     await state.update_data(amount=amount)
     await message.answer("Макс. активаций (0 – безлимит):")
     await state.set_state(AdminPromoAdd.max_activations)
@@ -543,31 +525,20 @@ async def promo_amount(message: Message, state: FSMContext):
 async def promo_max(message: Message, state: FSMContext):
     try:
         max_a = int(message.text)
-        if max_a == 0:
-            max_a = None
-    except:
-        await message.answer("Введите число")
-        return
+        if max_a == 0: max_a = None
+    except: await message.answer("Введите число"); return
     await state.update_data(max_activations=max_a)
     await message.answer("Срок действия в днях (0 – бессрочно):")
     await state.set_state(AdminPromoAdd.expires_days)
 
 @router.message(AdminPromoAdd.expires_days)
 async def promo_exp(message: Message, state: FSMContext):
-    try:
-        days = int(message.text)
-    except:
-        await message.answer("Введите число")
-        return
+    try: days = int(message.text)
+    except: await message.answer("Введите число"); return
     exp = datetime.utcnow() + timedelta(days=days) if days > 0 else None
     data = await state.get_data()
     async with AsyncSessionLocal() as session:
-        promo = Promocode(
-            code=data['code'],
-            bonus_amount=data['amount'],
-            max_activations=data['max_activations'],
-            expires_at=exp
-        )
+        promo = Promocode(code=data['code'], bonus_amount=data['amount'], max_activations=data['max_activations'], expires_at=exp)
         session.add(promo)
         await session.commit()
     await message.answer(f"✅ Промокод {data['code']} создан!")
@@ -583,21 +554,15 @@ async def promo_del(message: Message, state: FSMContext):
     code = message.text.strip()
     async with AsyncSessionLocal() as session:
         promo = await session.get(Promocode, code)
-        if promo:
-            await session.delete(promo)
-            await session.commit()
-            await message.answer("✅ Промокод удалён")
-        else:
-            await message.answer("❌ Промокод не найден")
+        if promo: await session.delete(promo); await session.commit(); await message.answer("✅ Промокод удалён")
+        else: await message.answer("❌ Промокод не найден")
     await state.clear()
 
 @router.callback_query(F.data == "promo_list")
 async def promo_list(callback: CallbackQuery):
     async with AsyncSessionLocal() as session:
         promos = (await session.execute(select(Promocode))).scalars().all()
-        if not promos:
-            await callback.answer("Нет промокодов", show_alert=True)
-            return
+        if not promos: await callback.answer("Нет промокодов", show_alert=True); return
         text = "Список промокодов:\n"
         for p in promos:
             exp = p.expires_at.strftime("%d.%m.%Y") if p.expires_at else "бессрочно"
@@ -621,17 +586,12 @@ async def user_search_start(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminUserSearch.user_id)
 async def user_search_res(message: Message, state: FSMContext):
-    try:
-        uid = int(message.text)
-    except:
-        await message.answer("Введите число")
-        return
+    try: uid = int(message.text)
+    except: await message.answer("Введите число"); return
     async with AsyncSessionLocal() as session:
         user = await session.get(User, uid)
-        if user:
-            await message.answer(f"ID: {user.user_id}\nUsername: @{user.username}\nБаланс: {user.balance:.2f}$\nБан: {'да' if user.is_banned else 'нет'}, причина: {user.ban_reason or '-'}")
-        else:
-            await message.answer("Пользователь не найден.")
+        if user: await message.answer(f"ID: {user.user_id}\nUsername: @{user.username}\nБаланс: {user.balance:.2f}$\nБан: {'да' if user.is_banned else 'нет'}, причина: {user.ban_reason or '-'}")
+        else: await message.answer("Пользователь не найден.")
     await state.clear()
 
 @router.callback_query(F.data == "user_balance")
@@ -641,41 +601,31 @@ async def user_bal_start(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminUserBalance.user_id)
 async def user_bal_uid(message: Message, state: FSMContext):
-    try:
-        uid = int(message.text)
-    except:
-        await message.answer("Введите число")
-        return
+    try: uid = int(message.text)
+    except: await message.answer("Введите число"); return
     await state.update_data(user_id=uid)
     await message.answer("Сумма (+ начислить, - списать):")
     await state.set_state(AdminUserBalance.amount)
 
 @router.message(AdminUserBalance.amount)
 async def user_bal_amount(message: Message, state: FSMContext):
-    try:
-        amount = float(message.text)
-    except:
-        await message.answer("Введите число")
-        return
-    data = await state.get_data()
-    uid = data['user_id']
+    try: amount = float(message.text)
+    except: await message.answer("Введите число"); return
+    data = await state.get_data(); uid = data['user_id']
     async with AsyncSessionLocal() as session:
         user = await session.get(User, uid)
         if user:
-            user.balance += amount
-            await session.commit()
+            user.balance += amount; await session.commit()
             from services.log_service import log_refill
             await log_refill(message.bot, uid, "", amount)
             action = "пополнен" if amount >= 0 else "списан"
             try:
                 await message.bot.send_message(uid,
-                    f"{tg_emoji('money', '✅')} Ваш баланс {action} на {abs(amount):.2f}$\nТекущий: {user.balance:.2f}$",
+                    f"{Emojis.COIN_1} Ваш баланс {action} на {abs(amount):.2f}$\nТекущий: {user.balance:.2f}$",
                     parse_mode="HTML")
-            except:
-                pass
+            except: pass
             await message.answer(f"Баланс пользователя {uid} изменён. Текущий: {user.balance:.2f}$")
-        else:
-            await message.answer("Пользователь не найден.")
+        else: await message.answer("Пользователь не найден.")
     await state.clear()
 
 @router.callback_query(F.data == "user_ban")
@@ -685,45 +635,30 @@ async def user_ban_start(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminUserBan.user_id)
 async def user_ban_uid(message: Message, state: FSMContext):
-    try:
-        uid = int(message.text)
-    except:
-        await message.answer("Введите число")
-        return
+    try: uid = int(message.text)
+    except: await message.answer("Введите число"); return
     await state.update_data(user_id=uid)
     await message.answer("Введите причину бана (или '-' если разбан):")
     await state.set_state(AdminUserBan.reason)
 
 @router.message(AdminUserBan.reason)
 async def user_ban_exec(message: Message, state: FSMContext):
-    reason = message.text
-    data = await state.get_data()
-    uid = data['user_id']
+    reason = message.text; data = await state.get_data(); uid = data['user_id']
     async with AsyncSessionLocal() as session:
         user = await session.get(User, uid)
         if user:
             if reason.strip() == '-':
-                user.is_banned = False
-                user.ban_reason = None
-                st = "разбанен"
-                try:
-                    await message.bot.send_message(uid, "✅ Вы были разблокированы администратором.")
-                except:
-                    pass
+                user.is_banned = False; user.ban_reason = None; st = "разбанен"
+                try: await message.bot.send_message(uid, "✅ Вы были разблокированы администратором.")
+                except: pass
             else:
-                user.is_banned = True
-                user.ban_reason = reason
-                st = "забанен"
-                try:
-                    await message.bot.send_message(uid,
-                        f"{tg_emoji('ban', '🚫')} Вы заблокированы.\nПричина: {html.escape(reason)}",
-                        parse_mode="HTML")
-                except:
-                    pass
-            await session.commit()
-            await message.answer(f"Пользователь {uid} {st}.")
-        else:
-            await message.answer("Пользователь не найден.")
+                user.is_banned = True; user.ban_reason = reason; st = "забанен"
+                try: await message.bot.send_message(uid,
+                    f"{Emojis.BAN} Вы заблокированы.\nПричина: {html.escape(reason)}",
+                    parse_mode="HTML")
+                except: pass
+            await session.commit(); await message.answer(f"Пользователь {uid} {st}.")
+        else: await message.answer("Пользователь не найден.")
     await state.clear()
 
 # ---------- ОБРАБОТКА РАЗЖАЛОВАНИЙ ----------
@@ -732,14 +667,10 @@ async def unban_approve(callback: CallbackQuery):
     req_id = int(callback.data.split("_")[2])
     async with AsyncSessionLocal() as session:
         req = await session.get(UnbanRequest, req_id)
-        if not req or req.status != 'pending':
-            await callback.answer("Заявка уже обработана")
-            return
+        if not req or req.status != 'pending': await callback.answer("Заявка уже обработана"); return
         req.status = 'approved'
         user = await session.get(User, req.user_id)
-        if user:
-            user.is_banned = False
-            user.ban_reason = None
+        if user: user.is_banned = False; user.ban_reason = None
         await session.commit()
         await callback.bot.send_message(req.user_id, "✅ Ваша заявка на разжалование одобрена! Вы разблокированы.")
         await callback.message.edit_text(f"✅ Пользователь {req.user_id} разблокирован.")
@@ -750,9 +681,7 @@ async def unban_reject(callback: CallbackQuery):
     req_id = int(callback.data.split("_")[2])
     async with AsyncSessionLocal() as session:
         req = await session.get(UnbanRequest, req_id)
-        if not req or req.status != 'pending':
-            await callback.answer("Уже обработана")
-            return
+        if not req or req.status != 'pending': await callback.answer("Уже обработана"); return
         req.status = 'rejected'
         await session.commit()
         await callback.bot.send_message(req.user_id, "❌ Ваша заявка на разжалование отклонена.")
@@ -785,16 +714,12 @@ async def replace_approve(callback: CallbackQuery, state: FSMContext):
     rid = int(callback.data.split("_")[2])
     async with AsyncSessionLocal() as session:
         req = await session.get(ReplaceRequest, rid)
-        if not req or req.status != 'pending':
-            await callback.answer("Заявка уже обработана.")
-            return
+        if not req or req.status != 'pending': await callback.answer("Заявка уже обработана."); return
         purchases = (await session.execute(
             select(Purchase).where(Purchase.user_id == req.user_id, Purchase.status == 'completed')
             .order_by(Purchase.purchased_at.desc())
         )).scalars().all()
-        if not purchases:
-            await callback.answer("У пользователя нет завершённых покупок.", show_alert=True)
-            return
+        if not purchases: await callback.answer("У пользователя нет завершённых покупок.", show_alert=True); return
         builder = InlineKeyboardBuilder()
         for p in purchases:
             product = await session.get(Product, p.product_id)
@@ -804,10 +729,7 @@ async def replace_approve(callback: CallbackQuery, state: FSMContext):
                 callback_data=f"select_purchase_{rid}_{p.id}"
             )
         builder.adjust(1)
-        await callback.message.edit_text(
-            "Выберите покупку, за которую возвращаются средства:",
-            reply_markup=builder.as_markup()
-        )
+        await callback.message.edit_text("Выберите покупку, за которую возвращаются средства:", reply_markup=builder.as_markup())
     await state.set_state(AdminReplaceSelectPurchase.purchase_id)
     await state.update_data(req_id=rid)
     await callback.answer()
@@ -819,38 +741,25 @@ async def purchase_selected(callback: CallbackQuery, state: FSMContext):
     pid = int(data_parts[3])
     async with AsyncSessionLocal() as session:
         purchase = await session.get(Purchase, pid)
-        if not purchase:
-            await callback.answer("Покупка не найдена")
-            return
+        if not purchase: await callback.answer("Покупка не найдена"); return
         refund_amount = purchase.price
         await state.update_data(refund_amount=refund_amount, purchase_id=pid)
-        await callback.message.answer(
-            f"Выбрана покупка на сумму {refund_amount:.2f}$.\nТеперь введите сообщение пользователю (можно прикрепить файл):"
-        )
+        await callback.message.answer(f"Выбрана покупка на сумму {refund_amount:.2f}$.\nТеперь введите сообщение пользователю (можно прикрепить файл):")
         await state.set_state(AdminReplaceApprove.message)
     await callback.answer()
 
 @router.message(AdminReplaceApprove.message)
 async def replace_approve_msg(message: Message, state: FSMContext):
-    data = await state.get_data()
-    rid = data['req_id']
-    refund_amount = data.get('refund_amount', 0.0)
+    data = await state.get_data(); rid = data['req_id']; refund_amount = data.get('refund_amount', 0.0)
     file_id = None
-    if message.document:
-        file_id = message.document.file_id
-    elif message.photo:
-        file_id = message.photo[-1].file_id
+    if message.document: file_id = message.document.file_id
+    elif message.photo: file_id = message.photo[-1].file_id
     async with AsyncSessionLocal() as session:
         req = await session.get(ReplaceRequest, rid)
-        if not req or req.status != 'pending':
-            await message.answer("Заявка уже обработана.")
-            await state.clear()
-            return
+        if not req or req.status != 'pending': await message.answer("Заявка уже обработана."); await state.clear(); return
         user = await session.get(User, req.user_id)
-        if user:
-            user.balance += refund_amount
-        req.status = 'approved'
-        req.admin_comment = message.text or ""
+        if user: user.balance += refund_amount
+        req.status = 'approved'; req.admin_comment = message.text or ""
         await session.commit()
         try:
             await message.bot.send_message(req.user_id, f"✅ Замена #{rid} одобрена. На баланс возвращено {refund_amount:.2f}$.\nАдминистратор: {message.text or 'без текста'}")
@@ -871,21 +780,13 @@ async def replace_reject(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminReplaceReject.reason)
 async def replace_reject_reason(message: Message, state: FSMContext):
-    data = await state.get_data()
-    rid = data['req_id']
+    data = await state.get_data(); rid = data['req_id']
     reason = message.text
     async with AsyncSessionLocal() as session:
         req = await session.get(ReplaceRequest, rid)
-        if not req or req.status != 'pending':
-            await message.answer("Уже обработана.")
-            await state.clear()
-            return
-        req.status = 'rejected'
-        req.admin_comment = reason
-        await session.commit()
-        try:
-            await message.bot.send_message(req.user_id, f"❌ Замена #{rid} отклонена.\nПричина: {reason}")
-        except:
-            pass
+        if not req or req.status != 'pending': await message.answer("Уже обработана."); await state.clear(); return
+        req.status = 'rejected'; req.admin_comment = reason; await session.commit()
+        try: await message.bot.send_message(req.user_id, f"❌ Замена #{rid} отклонена.\nПричина: {reason}")
+        except: pass
     await message.answer("Отказ отправлен.")
     await state.clear()
