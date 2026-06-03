@@ -9,7 +9,7 @@ from database.models import User, Product, Category, Promocode, UnbanRequest, In
 from config import ADMIN_IDS, VERSION
 from utils.states import *
 from services.product_service import get_categories, get_products_by_category
-from utils.emoji import tg_emoji
+
 from sqlalchemy import select, func, text
 import os, sqlite3, shutil, sys
 
