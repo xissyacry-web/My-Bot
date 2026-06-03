@@ -6,8 +6,7 @@ from aiogram.fsm.context import FSMContext
 from datetime import datetime
 from database.database import AsyncSessionLocal
 from database.models import User, Invoice, Promocode, Purchase, Product, UnbanRequest
-from keyboards.reply import main_menu
-from keyboards.inline import categories_keyboard, products_keyboard, payment_keyboard
+from keyboards.inline import main_menu_keyboard, categories_keyboard, products_keyboard, payment_keyboard
 from services.user_service import get_user, create_user
 from services.product_service import get_categories, get_products_by_category, buy_product, get_all_products_text
 from services.payment_service import create_invoice
@@ -27,119 +26,121 @@ async def ensure_user(user_id: int, username: str = None):
             user = await create_user(session, user_id, username)
         return user
 
-async def clear_state_on_menu(message: Message, state: FSMContext):
+async def clear_state(callback: CallbackQuery, state: FSMContext):
     if await state.get_state():
         await state.clear()
 
 # ========== СТАРТ ==========
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
-    await clear_state_on_menu(message, state)
-    async with AsyncSessionLocal() as session:
-        user = await get_user(session, message.from_user.id)
-        if not user:
-            await create_user(session, message.from_user.id, message.from_user.username)
-            await log_register(message.bot, message.from_user.id, message.from_user.username)
-    text = (
-        f"{tg_emoji('catalog', '🛒')} Добро пожаловать в магазин!\n"
-        f"Используйте кнопки ниже для навигации."
-    )
-    await message.answer(text, reply_markup=main_menu(), parse_mode="HTML")
+    await state.clear()
+    await ensure_user(message.from_user.id, message.from_user.username)
+    text = f"{tg_emoji('catalog')} Добро пожаловать в магазин!\nВыберите действие:"
+    await message.answer(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
 
-# ========== ГЛАВНОЕ МЕНЮ (reply-кнопки) ==========
-@router.message(F.text == "📋 Каталог")
-async def menu_catalog(message: Message, state: FSMContext):
-    await clear_state_on_menu(message, state)
+# ========== ГЛАВНОЕ МЕНЮ (колбэки) ==========
+@router.callback_query(F.data == "back_to_main")
+async def back_to_main(callback: CallbackQuery, state: FSMContext):
+    await clear_state(callback, state)
+    await callback.message.edit_text(
+        f"{tg_emoji('catalog')} Главное меню:",
+        reply_markup=main_menu_keyboard(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "menu_catalog")
+async def menu_catalog(callback: CallbackQuery):
     async with AsyncSessionLocal() as session:
         cats = await get_categories(session, parent_id=None)
         if cats:
-            await message.answer(
-                f"{tg_emoji('catalog', '🛒')} Выберите категорию:",
+            await callback.message.edit_text(
+                f"{tg_emoji('catalog')} Выберите категорию:",
                 reply_markup=categories_keyboard(cats), parse_mode="HTML"
             )
         else:
-            await message.answer(
-                f"{tg_emoji('warning', '⚠️')} Каталог пуст.",
-                parse_mode="HTML"
+            await callback.message.edit_text(
+                f"{tg_emoji('warning')} Каталог пуст.",
+                reply_markup=main_menu_keyboard(), parse_mode="HTML"
             )
+    await callback.answer()
 
-@router.message(F.text == "👤 Профиль")
-async def menu_profile(message: Message, state: FSMContext):
-    await clear_state_on_menu(message, state)
-    user = await ensure_user(message.from_user.id, message.from_user.username)
+@router.callback_query(F.data == "menu_profile")
+async def menu_profile(callback: CallbackQuery):
+    user = await ensure_user(callback.from_user.id, callback.from_user.username)
     days = (datetime.utcnow() - user.registered_at).days
     text = (
-        f"{tg_emoji('profile', '👤')} Профиль\n"
+        f"{tg_emoji('profile')} Профиль\n"
         f"ID: {user.user_id}\n"
         f"Username: @{html.escape(user.username or 'нет')}\n"
         f"Баланс: {user.balance:.2f}$\n"
         f"Регистрация: {user.registered_at.strftime('%d.%m.%Y')} ({days} дн.)"
     )
-    await message.answer(text, parse_mode="HTML")
+    await callback.message.edit_text(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
+    await callback.answer()
 
-@router.message(F.text == "📦 Наличие")
-async def menu_stock(message: Message, state: FSMContext):
-    await clear_state_on_menu(message, state)
+@router.callback_query(F.data == "menu_stock")
+async def menu_stock(callback: CallbackQuery):
     async with AsyncSessionLocal() as session:
         stock_text = await get_all_products_text(session)
-    await message.answer(
-        f"{tg_emoji('stock', '📦')} Наличие товаров:\n\n{stock_text}",
-        parse_mode="HTML"
+    await callback.message.edit_text(
+        f"{tg_emoji('stock')} Наличие товаров:\n\n{stock_text}",
+        reply_markup=main_menu_keyboard(), parse_mode="HTML"
     )
+    await callback.answer()
 
-@router.message(F.text == "💳 Пополнить")
-async def menu_topup(message: Message, state: FSMContext):
-    await clear_state_on_menu(message, state)
-    await message.answer(
-        f"{tg_emoji('topup', '✅')} Введите сумму пополнения в $:",
+@router.callback_query(F.data == "menu_topup")
+async def menu_topup(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer(
+        f"{tg_emoji('topup')} Введите сумму пополнения в $:",
         parse_mode="HTML"
     )
     await state.set_state(ReplenishBalance.amount)
+    await callback.answer()
 
-@router.message(F.text == "🎁 Промокод")
-async def menu_promo(message: Message, state: FSMContext):
-    await clear_state_on_menu(message, state)
-    await message.answer(
-        f"{tg_emoji('promo', '🎁')} Введите промокод:",
+@router.callback_query(F.data == "menu_promo")
+async def menu_promo(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer(
+        f"{tg_emoji('promo')} Введите промокод:",
         parse_mode="HTML"
     )
     await state.set_state(PromocodeInput.code)
+    await callback.answer()
 
-@router.message(F.text == "📜 История")
-async def menu_history(message: Message, state: FSMContext):
-    await clear_state_on_menu(message, state)
-    user_id = message.from_user.id
+@router.callback_query(F.data == "menu_history")
+async def menu_history(callback: CallbackQuery):
+    user_id = callback.from_user.id
     async with AsyncSessionLocal() as session:
         purchases = (await session.execute(
             select(Purchase).where(Purchase.user_id == user_id)
             .order_by(Purchase.purchased_at.desc()).limit(10)
         )).scalars().all()
         if not purchases:
-            await message.answer(
-                f"{tg_emoji('history', '📁')} Покупок пока нет.",
-                parse_mode="HTML"
+            await callback.message.edit_text(
+                f"{tg_emoji('history')} Покупок пока нет.",
+                reply_markup=main_menu_keyboard(), parse_mode="HTML"
             )
             return
-        text = f"{tg_emoji('history', '📁')} Последние покупки:\n\n"
+        text = f"{tg_emoji('history')} Последние покупки:\n\n"
         for p in purchases:
             product = await session.get(Product, p.product_id)
             pname = html.escape(product.name) if product else "удалённый товар"
             text += (
-                f"{tg_emoji('buy', '🔗')} ID {p.id} | {pname}\n"
+                f"{tg_emoji('buy')} ID {p.id} | {pname}\n"
                 f"💰 {p.price}$ x {p.amount} шт.\n"
-                f"{tg_emoji('time', '🕓')} {p.purchased_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+                f"{tg_emoji('time')} {p.purchased_at.strftime('%d.%m.%Y %H:%M')}\n\n"
             )
-        await message.answer(text, parse_mode="HTML")
+        await callback.message.edit_text(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
+    await callback.answer()
 
-@router.message(F.text == "🆘 Поддержка")
-async def menu_support(message: Message, state: FSMContext):
-    await clear_state_on_menu(message, state)
-    await message.answer(
-        f"{tg_emoji('support', '🧑‍💻')} Свяжитесь с поддержкой: @XissyaSup",
-        parse_mode="HTML"
+@router.callback_query(F.data == "menu_support")
+async def menu_support(callback: CallbackQuery):
+    await callback.message.edit_text(
+        f"{tg_emoji('support')} Свяжитесь с поддержкой: @XissyaSup",
+        reply_markup=main_menu_keyboard(), parse_mode="HTML"
     )
+    await callback.answer()
 
-# ========== КАТАЛОГ (инлайн-клавиатура) ==========
+# ========== КАТАЛОГ ==========
 @router.callback_query(F.data.startswith("cat_"))
 async def category_selected(callback: CallbackQuery):
     cat_id = int(callback.data.split("_")[1])
@@ -152,20 +153,20 @@ async def category_selected(callback: CallbackQuery):
         subcats = await get_categories(session, parent_id=cat_id)
         if subcats:
             await callback.message.edit_text(
-                f"{tg_emoji('catalog', '🛒')} Выберите подкатегорию:",
+                f"{tg_emoji('catalog')} Выберите подкатегорию:",
                 reply_markup=categories_keyboard(subcats), parse_mode="HTML"
             )
         else:
             products = await get_products_by_category(session, cat_id)
             if products:
-                text = f"{tg_emoji('catalog', '🛒')} Доступные товары:\n\n"
+                text = f"{tg_emoji('catalog')} Доступные товары:\n\n"
                 for p in products:
                     qty = "∞" if p.quantity == 0 else str(p.quantity)
                     desc = html.escape(p.description) if p.description else "без описания"
                     text += (
-                        f"{tg_emoji('star', '⭐')} {html.escape(p.name)}\n"
+                        f"{tg_emoji('star')} {html.escape(p.name)}\n"
                         f"💰 Цена: {p.price}$ за шт.\n"
-                        f"{tg_emoji('stock', '📦')} В наличии: {qty} шт.\n"
+                        f"{tg_emoji('stock')} В наличии: {qty} шт.\n"
                         f"📝 {desc}\n\n"
                     )
                 await callback.message.edit_text(text, reply_markup=products_keyboard(products), parse_mode="HTML")
@@ -179,13 +180,13 @@ async def back_to_categories(callback: CallbackQuery):
         cats = await get_categories(session, parent_id=None)
         if cats:
             await callback.message.edit_text(
-                f"{tg_emoji('catalog', '🛒')} Категории:",
+                f"{tg_emoji('catalog')} Категории:",
                 reply_markup=categories_keyboard(cats), parse_mode="HTML"
             )
         else:
             await callback.message.edit_text(
-                f"{tg_emoji('warning', '⚠️')} Каталог пуст.",
-                parse_mode="HTML"
+                f"{tg_emoji('warning')} Каталог пуст.",
+                reply_markup=main_menu_keyboard(), parse_mode="HTML"
             )
     await callback.answer()
 
@@ -200,7 +201,7 @@ async def buy_start(callback: CallbackQuery, state: FSMContext):
             return
         qty = "∞" if product.quantity == 0 else str(product.quantity)
         text = (
-            f"{tg_emoji('buy', '🔗')} {html.escape(product.name)}\n"
+            f"{tg_emoji('buy')} {html.escape(product.name)}\n"
             f"💰 Цена: {product.price}$ за шт.\n"
             f"📝 {html.escape(product.description or 'Описание отсутствует')}\n\n"
             f"Введите количество (доступно {qty} шт.):"
@@ -228,7 +229,7 @@ async def buy_amount(message: Message, state: FSMContext):
             qleft = result.get('quantity_left', 0)
             qleft_str = f"{qleft} шт." if isinstance(qleft, int) and qleft > 0 else ("∞" if qleft == 0 else qleft)
             text = (
-                f"{tg_emoji('topup', '✅')} Куплено {amount} шт.\n"
+                f"{tg_emoji('topup')} Куплено {amount} шт.\n"
                 f"Товар: {result['product_name']}\n"
                 f"Остаток: {result['balance']:.2f}$\n"
                 f"Осталось товара: {qleft_str}"
@@ -236,7 +237,7 @@ async def buy_amount(message: Message, state: FSMContext):
             await message.answer(text, parse_mode="HTML")
             if result.get("content"):
                 await message.answer(
-                    f"{tg_emoji('buy', '🔗')} Ваш товар:\n{html.escape(result['content'])}",
+                    f"{tg_emoji('buy')} Ваш товар:\n{html.escape(result['content'])}",
                     parse_mode="HTML"
                 )
             if result.get("file_id"):
@@ -266,7 +267,7 @@ async def process_amount(message: Message, state: FSMContext):
         session.add(Invoice(user_id=message.from_user.id, invoice_id=inv['invoice_id'], amount=amount))
         await session.commit()
     await message.answer(
-        f"{tg_emoji('topup', '✅')} Счёт на {amount}$ создан.\nОплатите и нажмите «Проверить оплату».",
+        f"{tg_emoji('topup')} Счёт на {amount}$ создан.\nОплатите и нажмите «Проверить оплату».",
         reply_markup=payment_keyboard(inv['pay_url']), parse_mode="HTML"
     )
     await state.clear()
@@ -288,7 +289,7 @@ async def check_payment(callback: CallbackQuery):
             user.balance += inv.amount
             await session.commit()
             await callback.message.answer(
-                f"{tg_emoji('topup', '✅')} Зачислено {inv.amount:.2f}$",
+                f"{tg_emoji('topup')} Зачислено {inv.amount:.2f}$",
                 parse_mode="HTML"
             )
             await log_refill(callback.bot, user_id, callback.from_user.username, inv.amount)
@@ -314,15 +315,15 @@ async def promocode_apply(message: Message, state: FSMContext):
         promo = await session.get(Promocode, code)
         used = [c.strip() for c in user.used_promocodes.split(',') if c.strip()]
         if code in used:
-            await message.answer(f"{tg_emoji('ban', '🚫')} Уже использован.", parse_mode="HTML")
+            await message.answer(f"{tg_emoji('ban')} Уже использован.", parse_mode="HTML")
             await state.clear()
             return
         if not promo or not promo.is_active:
-            await message.answer(f"{tg_emoji('ban', '🚫')} Недействителен.", parse_mode="HTML")
+            await message.answer(f"{tg_emoji('ban')} Недействителен.", parse_mode="HTML")
         elif promo.expires_at and promo.expires_at < datetime.utcnow():
-            await message.answer(f"{tg_emoji('time', '🕓')} Истёк.", parse_mode="HTML")
+            await message.answer(f"{tg_emoji('time')} Истёк.", parse_mode="HTML")
         elif promo.max_activations is not None and promo.used_count >= promo.max_activations:
-            await message.answer(f"{tg_emoji('ban', '🚫')} Лимит исчерпан.", parse_mode="HTML")
+            await message.answer(f"{tg_emoji('ban')} Лимит исчерпан.", parse_mode="HTML")
         else:
             user.balance += promo.bonus_amount
             promo.used_count += 1
@@ -330,34 +331,34 @@ async def promocode_apply(message: Message, state: FSMContext):
             user.used_promocodes = ','.join(used)
             await session.commit()
             await message.answer(
-                f"{tg_emoji('promo', '🎁')} Промокод активирован! +{promo.bonus_amount:.2f}$",
+                f"{tg_emoji('promo')} Промокод активирован! +{promo.bonus_amount:.2f}$",
                 parse_mode="HTML"
             )
             await log_promo(message.bot, user_id, message.from_user.username, code, promo.bonus_amount)
     await state.clear()
 
 # ========== ЗАМЕНА ==========
-@router.message(F.text == "♻️ Замена")
-async def menu_replace(message: Message, state: FSMContext):
-    await clear_state_on_menu(message, state)
+@router.callback_query(F.data == "menu_replace")
+async def menu_replace(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as session:
         exists = (await session.execute(
-            select(Purchase).where(Purchase.user_id == message.from_user.id, Purchase.status == 'completed')
+            select(Purchase).where(Purchase.user_id == callback.from_user.id, Purchase.status == 'completed')
         )).first()
         if not exists:
-            await message.answer("⚠️ Нет завершённых покупок для замены.")
+            await callback.answer("Нет завершённых покупок.", show_alert=True)
             return
-    await message.answer(
-        f"{tg_emoji('replace', '⚠️')} Введите номер лога и время покупки (одним сообщением):",
+    await callback.message.answer(
+        f"{tg_emoji('replace')} Введите номер лога и время покупки (одним сообщением):",
         parse_mode="HTML"
     )
     await state.set_state(ReplaceRequestStates.log_time)
+    await callback.answer()
 
 @router.message(ReplaceRequestStates.log_time)
 async def replace_log_time(message: Message, state: FSMContext):
     await state.update_data(log_info=message.text)
     await message.answer(
-        f"{tg_emoji('replace', '⚠️')} Отправьте фото (до 5). Когда закончите, напишите 'готово'.",
+        f"{tg_emoji('replace')} Отправьте фото (до 5). Когда закончите, напишите 'готово'.",
         parse_mode="HTML"
     )
     await state.set_state(ReplaceRequestStates.photos)
@@ -369,14 +370,14 @@ async def replace_photo(message: Message, state: FSMContext):
     photos = data.get('photos', [])
     if len(photos) >= 5:
         await message.answer(
-            f"{tg_emoji('warning', '⚠️')} Максимум 5 фото. Напишите 'готово'.",
+            f"{tg_emoji('warning')} Максимум 5 фото. Напишите 'готово'.",
             parse_mode="HTML"
         )
         return
     photos.append(message.photo[-1].file_id)
     await state.update_data(photos=photos)
     await message.answer(
-        f"{tg_emoji('star', '⭐')} Фото {len(photos)} получено. Отправьте ещё или напишите 'готово'.",
+        f"{tg_emoji('star')} Фото {len(photos)} получено. Отправьте ещё или напишите 'готово'.",
         parse_mode="HTML"
     )
 
@@ -384,7 +385,7 @@ async def replace_photo(message: Message, state: FSMContext):
 async def replace_photos_done(message: Message, state: FSMContext):
     if message.text.strip().lower() != "готово":
         await message.answer(
-            f"{tg_emoji('replace', '⚠️')} Отправьте фото или напишите 'готово'.",
+            f"{tg_emoji('replace')} Отправьте фото или напишите 'готово'.",
             parse_mode="HTML"
         )
         return
@@ -401,7 +402,7 @@ async def replace_photos_done(message: Message, state: FSMContext):
         for admin_id in ADMIN_IDS:
             try:
                 caption = (
-                    f"{tg_emoji('replace', '⚠️')} Заявка на замену #{req.id}\n"
+                    f"{tg_emoji('replace')} Заявка на замену #{req.id}\n"
                     f"👤 @{html.escape(message.from_user.username or '')} ({message.from_user.id})\n"
                     f"Лог/время: {html.escape(log_info)}"
                 )
@@ -416,7 +417,7 @@ async def replace_photos_done(message: Message, state: FSMContext):
             except Exception as e:
                 print(f"Ошибка уведомления админа: {e}")
     await message.answer(
-        f"{tg_emoji('topup', '✅')} Заявка отправлена. Ожидайте решения.",
+        f"{tg_emoji('topup')} Заявка отправлена. Ожидайте решения.",
         parse_mode="HTML"
     )
     await state.clear()
