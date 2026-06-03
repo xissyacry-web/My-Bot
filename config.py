@@ -4,3 +4,4 @@ ADMIN_IDS = [1073780833]
 DATABASE_URL = "sqlite+aiosqlite:///./bot.db"
 BOT_USERNAME = "XissyaLog_Bot"
 LOG_CHAT_ID = -1003816125421
+VERSION = "v2.0"
