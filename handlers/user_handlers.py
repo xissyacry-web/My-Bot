@@ -34,13 +34,12 @@ async def clear_state_on_menu(message: Message, state: FSMContext):
         await state.clear()
 
 async def delete_previous_message(callback: CallbackQuery):
-    """Удаляет предыдущее сообщение, если это возможно."""
     try:
         await callback.message.delete()
     except:
         pass
 
-# ========== СТАРТ (текст) ==========
+# ========== СТАРТ ==========
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
@@ -49,7 +48,7 @@ async def cmd_start(message: Message, state: FSMContext):
         f"{Emojis.HEART} <b>Добро пожаловать!</b>\n"
         f"<i>We strictly comply with all Telegram rules.</i>"
     )
-    await message.answer(text, parse_mode="HTML", reply_markup=main_menu_keyboard())
+    await message.answer(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
 
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery, state: FSMContext):
@@ -58,7 +57,7 @@ async def back_to_main(callback: CallbackQuery, state: FSMContext):
         f"{Emojis.HEART} <b>Добро пожаловать!</b>\n"
         f"<i>We strictly comply with all Telegram rules.</i>"
     )
-    await callback.message.answer(text, parse_mode="HTML", reply_markup=main_menu_keyboard())
+    await callback.message.answer(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
     await callback.answer()
 
 # ========== ПРОФИЛЬ ==========
@@ -73,7 +72,7 @@ async def menu_profile(callback: CallbackQuery):
         f"{Emojis.COIN_1} Баланс: <b>{user.balance:.2f} $</b>\n"
         f"{Emojis.CLOCK} Регистрация: {user.registered_at.strftime('%d.%m.%Y, %H:%M')} ({days} дн.)"
     )
-    await callback.message.answer(text, parse_mode="HTML", reply_markup=profile_keyboard())
+    await callback.message.answer(text, reply_markup=profile_keyboard(), parse_mode="HTML")
     await callback.answer()
 
 # ========== КАТАЛОГ ==========
@@ -462,7 +461,7 @@ async def replace_complaint(message: Message, state: FSMContext):
     )
     await state.clear()
 
-# ========== РАЗЖАЛОВАНИЕ (без изменений) ==========
+# ========== РАЗЖАЛОВАНИЕ ==========
 @router.callback_query(F.data == "unban_request")
 async def unban_request(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
