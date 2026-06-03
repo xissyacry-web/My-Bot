@@ -3,4 +3,5 @@ CRYPTO_BOT_TOKEN = "588982:AARxXJtGOMKkXibK6z9yOogblUSEYerHJqD"
 ADMIN_IDS = [1073780833]
 DATABASE_URL = "sqlite+aiosqlite:///./bot.db"
 BOT_USERNAME = "XissyaLog_Bot"
-LOG_CHAT_ID = -1003816125421   # если не нужен, можно удалить
+LOG_CHAT_ID = -1003816125421
+VERSION = "v1.0.8"
