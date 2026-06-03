@@ -1,3 +1,4 @@
+import html
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 from aiogram.filters import CommandStart
@@ -5,14 +6,17 @@ from aiogram.fsm.context import FSMContext
 from datetime import datetime
 from database.database import AsyncSessionLocal
 from database.models import User, Invoice, Promocode, Purchase, Product, UnbanRequest
-from keyboards.reply import main_menu
-from keyboards.inline import categories_keyboard, products_keyboard, payment_keyboard
+from keyboards.inline import (
+    main_menu_keyboard, categories_keyboard, products_keyboard,
+    payment_keyboard, profile_keyboard, buy_quantity_keyboard
+)
 from services.user_service import get_user, create_user
 from services.product_service import get_categories, get_products_by_category, buy_product, get_all_products_text
 from services.payment_service import create_invoice
 from services.replace_service import create_replace_request
 from services.log_service import log_purchase, log_register, log_refill, log_promo
 from utils.states import ReplenishBalance, PromocodeInput, BuyProduct, UnbanProcess, ReplaceRequestStates
+from utils.emoji import Emojis
 from config import ADMIN_IDS
 from sqlalchemy import select
 
@@ -29,32 +33,65 @@ async def clear_state_on_menu(message: Message, state: FSMContext):
     if await state.get_state():
         await state.clear()
 
+async def delete_previous_message(callback: CallbackQuery):
+    """Удаляет предыдущее сообщение, если это возможно."""
+    try:
+        await callback.message.delete()
+    except:
+        pass
+
+# ========== СТАРТ (текст) ==========
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await clear_state_on_menu(message, state)
-    async with AsyncSessionLocal() as session:
-        user = await get_user(session, message.from_user.id)
-        if not user:
-            await create_user(session, message.from_user.id, message.from_user.username)
-            await log_register(message.bot, message.from_user.id, message.from_user.username)
-    await message.answer("🎉 Добро пожаловать!", reply_markup=main_menu())
+    await ensure_user(message.from_user.id, message.from_user.username)
+    text = (
+        f"{Emojis.HEART} <b>Добро пожаловать!</b>\n"
+        f"<i>We strictly comply with all Telegram rules.</i>"
+    )
+    await message.answer(text, parse_mode="HTML", reply_markup=main_menu_keyboard())
 
-@router.message(F.text == "📋 Каталог")
-async def show_categories(message: Message, state: FSMContext):
-    await clear_state_on_menu(message, state)
+@router.callback_query(F.data == "back_to_main")
+async def back_to_main(callback: CallbackQuery, state: FSMContext):
+    await delete_previous_message(callback)
+    text = (
+        f"{Emojis.HEART} <b>Добро пожаловать!</b>\n"
+        f"<i>We strictly comply with all Telegram rules.</i>"
+    )
+    await callback.message.answer(text, parse_mode="HTML", reply_markup=main_menu_keyboard())
+    await callback.answer()
+
+# ========== ПРОФИЛЬ ==========
+@router.callback_query(F.data == "menu_profile")
+async def menu_profile(callback: CallbackQuery):
+    await delete_previous_message(callback)
+    user = await ensure_user(callback.from_user.id, callback.from_user.username)
+    days = (datetime.utcnow() - user.registered_at).days
+    text = (
+        f"{Emojis.PROFILE} <b>KTN • Профиль</b>\n\n"
+        f"{Emojis.INFO} ID: <code>{user.user_id}</code>\n"
+        f"{Emojis.COIN_1} Баланс: <b>{user.balance:.2f} $</b>\n"
+        f"{Emojis.CLOCK} Регистрация: {user.registered_at.strftime('%d.%m.%Y, %H:%M')} ({days} дн.)"
+    )
+    await callback.message.answer(text, parse_mode="HTML", reply_markup=profile_keyboard())
+    await callback.answer()
+
+# ========== КАТАЛОГ ==========
+@router.callback_query(F.data == "menu_catalog")
+async def menu_catalog(callback: CallbackQuery):
+    await delete_previous_message(callback)
     async with AsyncSessionLocal() as session:
         cats = await get_categories(session, parent_id=None)
         if cats:
-            await message.answer("Выберите категорию:", reply_markup=categories_keyboard(cats))
+            await callback.message.answer(
+                f"{Emojis.CATALOG} <b>Выберите категорию:</b>",
+                reply_markup=categories_keyboard(cats), parse_mode="HTML"
+            )
         else:
-            await message.answer("В каталоге пока нет товаров.")
-
-@router.message(F.text == "📦 Наличие")
-async def show_all_products(message: Message, state: FSMContext):
-    await clear_state_on_menu(message, state)
-    async with AsyncSessionLocal() as session:
-        text = await get_all_products_text(session)
-        await message.answer(text)
+            await callback.message.answer(
+                f"{Emojis.EMPTY} Пока пусто", parse_mode="HTML"
+            )
+    await callback.answer()
 
 @router.callback_query(F.data.startswith("cat_"))
 async def category_selected(callback: CallbackQuery):
@@ -63,22 +100,29 @@ async def category_selected(callback: CallbackQuery):
         from database.models import Category
         cat = await session.get(Category, cat_id)
         if not cat:
-            await callback.answer("Категория не найдена", show_alert=True)
+            await callback.answer(f"{Emojis.BAN} Категория не найдена", show_alert=True)
             return
         subcats = await get_categories(session, parent_id=cat_id)
         if subcats:
-            await callback.message.edit_text("Выберите подкатегорию:", reply_markup=categories_keyboard(subcats))
+            await callback.message.edit_text(
+                f"{Emojis.CATALOG} <b>Выберите подкатегорию:</b>",
+                reply_markup=categories_keyboard(subcats), parse_mode="HTML"
+            )
         else:
             products = await get_products_by_category(session, cat_id)
             if products:
-                text = "Доступные товары:\n\n"
+                text = f"{Emojis.CATALOG} <b>Доступные товары:</b>\n\n"
                 for p in products:
                     qty = "∞" if p.quantity == 0 else str(p.quantity)
-                    desc = p.description if p.description else "без описания"
-                    text += f"📌 {p.name}\n💰 Цена: {p.price}$ за шт.\n📦 В наличии: {qty} шт.\n📝 {desc}\n\n"
-                await callback.message.edit_text(text, reply_markup=products_keyboard(products))
+                    desc = html.escape(p.description) if p.description else "без описания"
+                    text += (
+                        f"{Emojis.BOX_1} {html.escape(p.name)}\n"
+                        f"   {Emojis.COIN_1} {p.price}$ • {qty} шт.\n"
+                        f"   📝 {desc}\n\n"
+                    )
+                await callback.message.edit_text(text, reply_markup=products_keyboard(products), parse_mode="HTML")
             else:
-                await callback.answer("В этой категории пока нет товаров", show_alert=True)
+                await callback.answer(f"{Emojis.EMPTY} Пока пусто", show_alert=True)
     await callback.answer()
 
 @router.callback_query(F.data == "back_to_categories")
@@ -86,71 +130,88 @@ async def back_to_categories(callback: CallbackQuery):
     async with AsyncSessionLocal() as session:
         cats = await get_categories(session, parent_id=None)
         if cats:
-            await callback.message.edit_text("Категории:", reply_markup=categories_keyboard(cats))
+            await callback.message.edit_text(
+                f"{Emojis.CATALOG} <b>Категории:</b>",
+                reply_markup=categories_keyboard(cats), parse_mode="HTML"
+            )
         else:
-            await callback.message.edit_text("Категорий нет")
+            await callback.message.edit_text(
+                f"{Emojis.EMPTY} Пока пусто", parse_mode="HTML"
+            )
     await callback.answer()
 
+# ========== ПОКУПКА (с быстрым выбором) ==========
 @router.callback_query(F.data.startswith("buy_"))
 async def buy_start(callback: CallbackQuery, state: FSMContext):
     product_id = int(callback.data.split("_")[1])
     async with AsyncSessionLocal() as session:
         product = await session.get(Product, product_id)
         if not product or not product.is_available:
-            await callback.answer("Товар недоступен", show_alert=True)
+            await callback.answer(f"{Emojis.BAN} Товар недоступен", show_alert=True)
             return
         qty = "∞" if product.quantity == 0 else str(product.quantity)
         await callback.message.answer(
-            f"📦 {product.name}\n💰 Цена: {product.price}$ за шт.\n📝 {product.description or 'Описание отсутствует'}\n\n"
-            f"Введите количество (доступно {qty} шт.):"
+            f"{Emojis.CART} <b>{html.escape(product.name)}</b>\n"
+            f"{Emojis.COIN_1} Цена: {product.price}$ за шт.\n"
+            f"📝 {html.escape(product.description or 'Описание отсутствует')}\n\n"
+            f"{Emojis.BOX_1} В наличии: {qty} шт.\n\n"
+            f"<i>Выберите количество или введите вручную:</i>",
+            parse_mode="HTML",
+            reply_markup=buy_quantity_keyboard(product_id)
         )
-        await state.set_state(BuyProduct.amount)
-        await state.update_data(product_id=product_id)
     await callback.answer()
 
-@router.message(BuyProduct.amount)
-async def buy_amount(message: Message, state: FSMContext):
-    try:
-        amount = int(message.text)
-        if amount <= 0: raise ValueError
-    except:
-        await message.answer("Введите положительное целое число.")
-        return
-    data = await state.get_data()
-    product_id = data['product_id']
-    user_id = message.from_user.id
+@router.callback_query(F.data.startswith("buy_qty_"))
+async def buy_quick(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_")
+    product_id = int(parts[2])
+    amount = int(parts[3])
+    await process_purchase(callback.message, callback.from_user.id, product_id, amount, state)
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("buy_manual_"))
+async def buy_manual(callback: CallbackQuery, state: FSMContext):
+    product_id = int(callback.data.split("_")[2])
+    await callback.message.answer("Введите количество:")
+    await state.set_state(BuyProduct.amount)
+    await state.update_data(product_id=product_id)
+    await callback.answer()
+
+async def process_purchase(message: Message, user_id: int, product_id: int, amount: int, state: FSMContext):
     await ensure_user(user_id, message.from_user.username)
     async with AsyncSessionLocal() as session:
         result = await buy_product(session, user_id, product_id, amount)
         if result["success"]:
             qleft = result.get('quantity_left', 0)
             qleft_str = f"{qleft} шт." if isinstance(qleft, int) and qleft > 0 else ("∞" if qleft == 0 else qleft)
-            text = (f"✅ Куплено {amount} шт.\nТовар: {result['product_name']}\n"
-                    f"Остаток: {result['balance']:.2f}$\nОсталось товара: {qleft_str}")
-            await message.answer(text)
-            if result.get("content"): await message.answer(f"📦 Ваш товар:\n{result['content']}")
+            text = (
+                f"{Emojis.CHECK} <b>Куплено {amount} шт.</b>\n"
+                f"Товар: {result['product_name']}\n"
+                f"{Emojis.COIN_1} Остаток: {result['balance']:.2f}$\n"
+                f"{Emojis.BOX_1} Осталось товара: {qleft_str}"
+            )
+            await message.answer(text, parse_mode="HTML")
+            if result.get("content"):
+                await message.answer(
+                    f"{Emojis.CART} <b>Ваш товар:</b>\n{html.escape(result['content'])}",
+                    parse_mode="HTML"
+                )
             if result.get("file_id"):
                 try: await message.answer_document(result["file_id"])
                 except: pass
             await log_purchase(message.bot, user_id, message.from_user.username, result['product_name'], amount, result.get('price', 0))
         else:
-            await message.answer(f"❌ {result['error']}")
-    await state.clear()
+            await message.answer(f"{Emojis.BAN} {result['error']}")
 
-@router.message(F.text == "👤 Профиль")
-async def profile(message: Message, state: FSMContext):
-    await clear_state_on_menu(message, state)
-    user = await ensure_user(message.from_user.id, message.from_user.username)
-    days = (datetime.utcnow() - user.registered_at).days
-    text = (f"👤 Профиль\nID: {user.user_id}\nUsername: @{user.username or 'нет'}\n"
-            f"Баланс: {user.balance:.2f}$\nРегистрация: {user.registered_at.strftime('%d.%m.%Y')} ({days} дн.)")
-    await message.answer(text)
-
-@router.message(F.text == "💳 Пополнить")
-async def ask_amount(message: Message, state: FSMContext):
-    await clear_state_on_menu(message, state)
-    await message.answer("Введите сумму пополнения в $:")
+# ========== ПОПОЛНЕНИЕ ==========
+@router.callback_query(F.data == "menu_topup")
+async def menu_topup(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer(
+        f"{Emojis.COIN_1} Введите сумму пополнения в $:",
+        parse_mode="HTML"
+    )
     await state.set_state(ReplenishBalance.amount)
+    await callback.answer()
 
 @router.message(ReplenishBalance.amount)
 async def process_amount(message: Message, state: FSMContext):
@@ -169,8 +230,11 @@ async def process_amount(message: Message, state: FSMContext):
     async with AsyncSessionLocal() as session:
         session.add(Invoice(user_id=message.from_user.id, invoice_id=inv['invoice_id'], amount=amount))
         await session.commit()
-    await message.answer(f"💳 Счёт на {amount}$ создан.\nОплатите и нажмите «Проверить оплату».",
-                         reply_markup=payment_keyboard(inv['pay_url']))
+    await message.answer(
+        f"{Emojis.CHECK} <b>Счёт выставлен!</b> Время на оплату: 10 минут.\n"
+        f"Оплатите и нажмите «Проверить оплату».",
+        reply_markup=payment_keyboard(inv['pay_url']), parse_mode="HTML"
+    )
     await state.clear()
 
 @router.callback_query(F.data == "check_payment")
@@ -180,7 +244,7 @@ async def check_payment(callback: CallbackQuery):
         inv = (await session.execute(select(Invoice).where(Invoice.user_id == user_id, Invoice.status == 'active')
                                      .order_by(Invoice.created_at.desc()).limit(1))).scalar_one_or_none()
         if not inv:
-            await callback.answer("Нет активных счетов.", show_alert=True)
+            await callback.answer(f"{Emojis.BAN} Нет активных счетов.", show_alert=True)
             return
         from services.payment_service import get_invoice
         data = await get_invoice(inv.invoice_id)
@@ -189,7 +253,9 @@ async def check_payment(callback: CallbackQuery):
             user = await get_user(session, user_id)
             user.balance += inv.amount
             await session.commit()
-            await callback.message.answer(f"✅ Зачислено {inv.amount:.2f}$")
+            await callback.message.answer(
+                f"{Emojis.CHECK} Зачислено {inv.amount:.2f}$", parse_mode="HTML"
+            )
             await log_refill(callback.bot, user_id, callback.from_user.username, inv.amount)
         elif data and data['status'] == 'expired':
             inv.status = 'expired'
@@ -199,11 +265,15 @@ async def check_payment(callback: CallbackQuery):
             await callback.answer("Оплата не поступила.", show_alert=True)
     await callback.answer()
 
-@router.message(F.text == "🎁 Промокод")
-async def promocode_start(message: Message, state: FSMContext):
-    await clear_state_on_menu(message, state)
-    await message.answer("Введите промокод:")
+# ========== ПРОМОКОД ==========
+@router.callback_query(F.data == "menu_promo")
+async def menu_promo(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer(
+        f"{Emojis.STAR_GOLD} Введите промокод:",
+        parse_mode="HTML"
+    )
     await state.set_state(PromocodeInput.code)
+    await callback.answer()
 
 @router.message(PromocodeInput.code)
 async def promocode_apply(message: Message, state: FSMContext):
@@ -218,67 +288,107 @@ async def promocode_apply(message: Message, state: FSMContext):
         promo = await session.get(Promocode, code)
         used = [c.strip() for c in user.used_promocodes.split(',') if c.strip()]
         if code in used:
-            await message.answer("❌ Уже использован.")
+            await message.answer(f"{Emojis.BAN} Уже использован.", parse_mode="HTML")
             await state.clear()
             return
         if not promo or not promo.is_active:
-            await message.answer("❌ Недействителен.")
+            await message.answer(f"{Emojis.BAN} Недействителен.", parse_mode="HTML")
         elif promo.expires_at and promo.expires_at < datetime.utcnow():
-            await message.answer("❌ Истёк.")
+            await message.answer(f"{Emojis.CLOCK} Истёк.", parse_mode="HTML")
         elif promo.max_activations is not None and promo.used_count >= promo.max_activations:
-            await message.answer("❌ Лимит исчерпан.")
+            await message.answer(f"{Emojis.BAN} Лимит исчерпан.", parse_mode="HTML")
         else:
             user.balance += promo.bonus_amount
             promo.used_count += 1
             used.append(code)
             user.used_promocodes = ','.join(used)
             await session.commit()
-            await message.answer(f"🎁 Промокод +{promo.bonus_amount:.2f}$")
+            await message.answer(
+                f"{Emojis.STAR_GOLD} Промокод активирован! +{promo.bonus_amount:.2f}$",
+                parse_mode="HTML"
+            )
             await log_promo(message.bot, user_id, message.from_user.username, code, promo.bonus_amount)
     await state.clear()
 
-@router.message(F.text == "🆘 Поддержка")
-async def support(message: Message, state: FSMContext):
-    await clear_state_on_menu(message, state)
-    await message.answer("Свяжитесь с поддержкой: @XissyaSup")
-
-@router.message(F.text == "📜 Покупки")
-async def menu_history(message: Message, state: FSMContext):
-    await clear_state_on_menu(message, state)
-    user_id = message.from_user.id
+# ========== ИСТОРИЯ ПОКУПОК ==========
+@router.callback_query(F.data == "menu_history")
+async def menu_history(callback: CallbackQuery):
+    user_id = callback.from_user.id
     async with AsyncSessionLocal() as session:
         purchases = (await session.execute(
             select(Purchase).where(Purchase.user_id == user_id)
             .order_by(Purchase.purchased_at.desc()).limit(10)
         )).scalars().all()
         if not purchases:
-            await message.answer("Покупок пока нет.")
+            await callback.message.edit_text(
+                f"{Emojis.EMPTY} Покупок пока нет.",
+                parse_mode="HTML"
+            )
             return
-        text = "📜 Последние покупки:\n\n"
+        text = f"{Emojis.CLOCK} <b>Последние покупки:</b>\n\n"
         for p in purchases:
             product = await session.get(Product, p.product_id)
-            pname = product.name if product else "удалённый товар"
-            text += f"🆔 {p.id} | {pname}\n💰 {p.price}$ x {p.amount} шт.\n📅 {p.purchased_at.strftime('%d.%m.%Y %H:%M')}\n\n"
-        await message.answer(text)
+            pname = html.escape(product.name) if product else "удалённый товар"
+            text += (
+                f"{Emojis.CART} ID {p.id} | {pname}\n"
+                f"{Emojis.COIN_1} {p.price}$ x {p.amount} шт.\n"
+                f"{Emojis.CLOCK} {p.purchased_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+            )
+        await callback.message.edit_text(text, parse_mode="HTML")
+
+# ========== ИСТОРИЯ ОПЕРАЦИЙ ==========
+@router.callback_query(F.data == "menu_operations")
+async def menu_operations(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    async with AsyncSessionLocal() as session:
+        invoices = (await session.execute(
+            select(Invoice).where(Invoice.user_id == user_id, Invoice.status == 'paid')
+            .order_by(Invoice.created_at.desc()).limit(10)
+        )).scalars().all()
+        if not invoices:
+            await callback.message.edit_text(
+                f"{Emojis.EMPTY} Операций с балансом пока не было.",
+                parse_mode="HTML"
+            )
+            return
+        text = f"{Emojis.COIN_1} <b>История пополнений:</b>\n\n"
+        for inv in invoices:
+            text += f"{Emojis.CHECK} {inv.amount:.2f}$ • {inv.created_at.strftime('%d.%m.%Y %H:%M')}\n"
+        await callback.message.edit_text(text, parse_mode="HTML")
+
+# ========== ПОДДЕРЖКА ==========
+@router.callback_query(F.data == "menu_support")
+async def menu_support(callback: CallbackQuery):
+    await callback.message.edit_text(
+        f"{Emojis.INFO} Свяжитесь с поддержкой: @XissyaSup",
+        parse_mode="HTML"
+    )
+    await callback.answer()
 
 # ========== ЗАМЕНА ==========
-@router.message(F.text == "♻️ Замена")
-async def replace_start(message: Message, state: FSMContext):
-    await clear_state_on_menu(message, state)
+@router.callback_query(F.data == "menu_replace")
+async def menu_replace(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as session:
         exists = (await session.execute(
-            select(Purchase).where(Purchase.user_id == message.from_user.id, Purchase.status == 'completed')
+            select(Purchase).where(Purchase.user_id == callback.from_user.id, Purchase.status == 'completed')
         )).first()
         if not exists:
-            await message.answer("⚠️ Нет завершённых покупок.")
+            await callback.answer(f"{Emojis.BAN} Нет завершённых покупок.", show_alert=True)
             return
-    await message.answer("Введите номер лога и время покупки (одним сообщением):")
+    await callback.message.answer(
+        f"{Emojis.REPLACE} Введите номер лога и время покупки (одним сообщением):",
+        parse_mode="HTML"
+    )
     await state.set_state(ReplaceRequestStates.log_time)
+    await callback.answer()
 
 @router.message(ReplaceRequestStates.log_time)
 async def replace_log_time(message: Message, state: FSMContext):
     await state.update_data(log_info=message.text)
-    await message.answer("Теперь отправляйте фото по одному. Когда закончите, напишите 'готово'.")
+    await message.answer(
+        f"{Emojis.REPLACE} Отправьте фото (до 5). Когда закончите, напишите 'готово'.",
+        parse_mode="HTML"
+    )
     await state.set_state(ReplaceRequestStates.photos)
     await state.update_data(photos=[])
 
@@ -287,11 +397,17 @@ async def replace_photo(message: Message, state: FSMContext):
     data = await state.get_data()
     photos = data.get('photos', [])
     if len(photos) >= 5:
-        await message.answer("Максимум 5 фото. Напишите 'готово'.")
+        await message.answer(
+            f"{Emojis.WARNING} Максимум 5 фото. Напишите 'готово'.",
+            parse_mode="HTML"
+        )
         return
     photos.append(message.photo[-1].file_id)
     await state.update_data(photos=photos)
-    await message.answer(f"Фото {len(photos)} получено. Отправьте ещё или напишите 'готово'.")
+    await message.answer(
+        f"{Emojis.NUM_1} Фото {len(photos)} получено. Отправьте ещё или напишите 'готово'.",
+        parse_mode="HTML"
+    )
 
 @router.message(ReplaceRequestStates.photos, F.text)
 async def replace_photos_text_handler(message: Message, state: FSMContext):
@@ -302,10 +418,10 @@ async def replace_photos_text_handler(message: Message, state: FSMContext):
             await message.answer("Вы не отправили ни одного фото. Отправьте фото или напишите '-', если их нет.")
             return
         await state.update_data(photos=photos)
-        await message.answer("Опишите вашу жалобу текстом:")
+        await message.answer("Опишите вашу жалобу текстом:", parse_mode="HTML")
         await state.set_state(ReplaceRequestStates.complaint)
     else:
-        await message.answer("Отправьте фото или напишите 'готово' для завершения.")
+        await message.answer("Отправьте фото или напишите 'готово' для завершения.", parse_mode="HTML")
 
 @router.message(ReplaceRequestStates.complaint)
 async def replace_complaint(message: Message, state: FSMContext):
@@ -324,24 +440,29 @@ async def replace_complaint(message: Message, state: FSMContext):
 
         for admin_id in ADMIN_IDS:
             try:
-                caption = (f"♻️ Заявка на замену #{req.id}\n"
-                           f"Пользователь: @{message.from_user.username} ({message.from_user.id})\n"
-                           f"Лог/время: {log_info}\n"
-                           f"Жалоба: {complaint}")
+                caption = (
+                    f"{Emojis.REPLACE} Заявка на замену #{req.id}\n"
+                    f"👤 @{html.escape(message.from_user.username or '')} ({message.from_user.id})\n"
+                    f"Лог/время: {html.escape(log_info)}\n"
+                    f"Жалоба: {html.escape(complaint)}"
+                )
                 if photos:
                     media = [InputMediaPhoto(media=pid) for pid in photos]
                     await message.bot.send_media_group(admin_id, media)
-                await message.bot.send_message(admin_id, caption,
+                await message.bot.send_message(admin_id, caption, parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(text="✅ Одобрить", callback_data=f"replace_approve_{req.id}"),
                          InlineKeyboardButton(text="❌ Отказать", callback_data=f"replace_reject_{req.id}")]
                     ]))
             except Exception as e:
                 print(f"Ошибка уведомления админа: {e}")
-    await message.answer("✅ Заявка отправлена. Ожидайте решения администратора.")
+    await message.answer(
+        f"{Emojis.CHECK} Заявка отправлена. Ожидайте решения.",
+        parse_mode="HTML"
+    )
     await state.clear()
 
-# ========== РАЗЖАЛОВАНИЕ ==========
+# ========== РАЗЖАЛОВАНИЕ (без изменений) ==========
 @router.callback_query(F.data == "unban_request")
 async def unban_request(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
