@@ -1,22 +1,24 @@
+import html
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from datetime import datetime, timedelta
 from database.database import AsyncSessionLocal
 from database.models import User, Product, Category, Promocode, UnbanRequest, Invoice, Purchase, ReplaceRequest
-from config import ADMIN_IDS
+from config import ADMIN_IDS, VERSION
 from utils.states import *
 from services.product_service import get_categories, get_products_by_category
-from sqlalchemy import select, func
+from utils.emoji import tg_emoji
+from sqlalchemy import select, func, text
+import os, sqlite3, shutil, sys
 
 router = Router()
-VERSION = "v1.0.8"
 
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
-# ---------- ГЛАВНОЕ МЕНЮ ----------
+# ---------- ГЛАВНОЕ МЕНЮ АДМИНА ----------
 @router.message(F.text == "/admin")
 async def admin_panel(message: Message):
     if not is_admin(message.from_user.id): return
@@ -28,6 +30,48 @@ async def back(callback: CallbackQuery):
     from keyboards.inline import admin_main_keyboard
     await callback.message.edit_text(f"🛠 Админ-панель {VERSION}", reply_markup=admin_main_keyboard())
     await callback.answer()
+
+# ---------- ЭКСПОРТ / ИМПОРТ БД ----------
+@router.callback_query(F.data == "admin_export")
+async def export_db(callback: CallbackQuery):
+    async with AsyncSessionLocal() as session:
+        await session.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+        await session.commit()
+    try:
+        await callback.message.answer_document(FSInputFile("bot.db"), caption="📤 Экспорт базы данных")
+    except Exception as e:
+        await callback.message.answer(f"Ошибка экспорта: {e}")
+
+@router.callback_query(F.data == "admin_import")
+async def import_start(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        "⚠️ Отправьте файл bot.db для импорта (текущая база будет сохранена в backup.db).",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Отмена", callback_data="admin_back")]])
+    )
+    await state.set_state(AdminImport.file)
+
+@router.message(AdminImport.file, F.document)
+async def import_file(message: Message, state: FSMContext):
+    if not message.document.file_name.endswith(".db"):
+        await message.answer("❌ Файл должен иметь расширение .db")
+        return
+    file_id = message.document.file_id
+    file = await message.bot.get_file(file_id)
+    temp_path = "bot.db.uploaded"
+    await message.bot.download_file(file.file_path, temp_path)
+    try:
+        conn = sqlite3.connect(temp_path)
+        conn.execute("SELECT 1 FROM users LIMIT 1")
+        conn.close()
+    except:
+        await message.answer("❌ Файл не является базой данных бота.")
+        os.remove(temp_path)
+        return
+    if os.path.exists("bot.db"):
+        shutil.copy2("bot.db", "backup.db")
+    os.replace(temp_path, "bot.db")
+    await message.answer("✅ База импортирована. Перезапуск...")
+    sys.exit(0)
 
 # ---------- СТАТИСТИКА ----------
 @router.callback_query(F.data == "admin_stats")
@@ -257,38 +301,97 @@ async def refill_prod_exec(message: Message, state: FSMContext):
         await message.answer(f"✅ Товар '{product.name}' пополнен на {len(lines)} шт. Теперь доступно: {product.quantity} шт.")
     await state.clear()
 
-# ---------- ДОБАВЛЕНИЕ КАТЕГОРИИ ----------
-@router.callback_query(F.data == "admin_add_category")
-async def add_cat(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("Введите название новой категории:")
-    await state.set_state(AdminAddCategory.name)
-
-@router.message(AdminAddCategory.name)
-async def cat_name(message: Message, state: FSMContext):
-    await state.update_data(name=message.text)
-    await message.answer("Введите ID родительской категории (0 — если верхний уровень):")
-    await state.set_state(AdminAddCategory.parent_id)
-
-@router.message(AdminAddCategory.parent_id)
-async def cat_parent(message: Message, state: FSMContext):
-    data = await state.get_data()
-    try:
-        pid = int(message.text)
-        if pid == 0:
-            pid = None
-        else:
-            async with AsyncSessionLocal() as session:
-                if not await session.get(Category, pid):
-                    await message.answer("❌ Родительская категория не найдена. Введите ID ещё раз или 0:")
-                    return
-    except:
-        await message.answer("Введите число")
-        return
+# ---------- УДАЛЕНИЕ СТРОК ТОВАРА ----------
+@router.callback_query(F.data == "admin_delete_lines")
+async def delete_lines_cat(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as session:
-        cat = Category(name=data['name'], parent_id=pid)
-        session.add(cat)
+        cats = await get_categories(session)
+        if not cats:
+            await callback.message.edit_text("Нет категорий")
+            return
+        builder = InlineKeyboardBuilder()
+        for c in cats:
+            builder.button(text=c.name, callback_data=f"dellinescat_{c.id}")
+        builder.adjust(2)
+        builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back"))
+        await callback.message.edit_text("Выберите категорию:", reply_markup=builder.as_markup())
+    await state.set_state(AdminDeleteLines.category_id)
+
+@router.callback_query(AdminDeleteLines.category_id, F.data.startswith("dellinescat_"))
+async def delete_lines_prod_list(callback: CallbackQuery, state: FSMContext):
+    cat_id = int(callback.data.split("_")[1])
+    await state.update_data(category_id=cat_id)
+    async with AsyncSessionLocal() as session:
+        prods = await get_products_by_category(session, cat_id)
+        if not prods:
+            await callback.answer("Нет товаров в этой категории", show_alert=True)
+            return
+        builder = InlineKeyboardBuilder()
+        for p in prods:
+            builder.button(text=f"{p.name} - {p.price}$ ({p.quantity} шт.)", callback_data=f"dellinesprod_{p.id}")
+        builder.adjust(1)
+        builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back"))
+        await callback.message.edit_text("Выберите товар для удаления строк:", reply_markup=builder.as_markup())
+    await state.set_state(AdminDeleteLines.product_id)
+
+@router.callback_query(AdminDeleteLines.product_id, F.data.startswith("dellinesprod_"))
+async def delete_lines_show(callback: CallbackQuery, state: FSMContext):
+    pid = int(callback.data.split("_")[1])
+    await state.update_data(product_id=pid)
+    async with AsyncSessionLocal() as session:
+        product = await session.get(Product, pid)
+        if not product or not product.content:
+            await callback.answer("Товар не имеет текстовых строк.", show_alert=True)
+            return
+        lines = [line for line in product.content.split('\n') if line.strip()]
+        if not lines:
+            await callback.answer("Нет строк для удаления.", show_alert=True)
+            return
+        text = "📝 Текущие строки товара (с номерами):\n\n"
+        for i, line in enumerate(lines, start=1):
+            text += f"{i}. {line[:50]}{'...' if len(line)>50 else ''}\n"
+        text += "\nВведите номера строк, которые нужно удалить (через запятую, например: 1,3,5):"
+    await callback.message.answer(text)
+    await state.set_state(AdminDeleteLines.lines)
+    await callback.answer()
+
+@router.message(AdminDeleteLines.lines)
+async def delete_lines_exec(message: Message, state: FSMContext):
+    data = await state.get_data()
+    pid = data['product_id']
+    try:
+        nums = [int(x.strip()) for x in message.text.split(',') if x.strip().isdigit()]
+        if not nums: raise ValueError
+    except:
+        await message.answer("Введите корректные номера строк через запятую.")
+        return
+
+    async with AsyncSessionLocal() as session:
+        product = await session.get(Product, pid)
+        if not product or not product.content:
+            await message.answer("Товар не найден или не имеет строк.")
+            await state.clear()
+            return
+
+        lines = [line for line in product.content.split('\n') if line.strip()]
+        deleted = 0
+        new_lines = []
+        for i, line in enumerate(lines, start=1):
+            if i in nums:
+                deleted += 1
+            else:
+                new_lines.append(line)
+
+        if deleted == 0:
+            await message.answer("Не найдено строк с такими номерами.")
+            return
+
+        product.content = '\n'.join(new_lines) if new_lines else None
+        product.quantity = len(new_lines)
+        if product.quantity == 0:
+            product.is_available = False
         await session.commit()
-    await message.answer("✅ Категория добавлена!")
+        await message.answer(f"✅ Удалено {deleted} строк из товара '{product.name}'. Осталось: {product.quantity} шт.")
     await state.clear()
 
 # ---------- УДАЛЕНИЕ ТОВАРА ----------
@@ -337,7 +440,7 @@ async def del_prod_exec(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Товар не найден")
     await state.clear()
 
-# ---------- УДАЛЕНИЕ КАТЕГОРИИ ----------
+# ---------- УДАЛЕНИЕ КАТЕГОРИИ (БЕЗОПАСНОЕ) ----------
 @router.callback_query(F.data == "admin_delete_category")
 async def del_cat(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as session:
@@ -371,6 +474,40 @@ async def del_cat_exec(callback: CallbackQuery, state: FSMContext):
         await session.delete(cat)
         await session.commit()
         await callback.message.edit_text("✅ Категория удалена")
+    await state.clear()
+
+# ---------- ДОБАВЛЕНИЕ КАТЕГОРИИ ----------
+@router.callback_query(F.data == "admin_add_category")
+async def add_cat(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("Введите название новой категории:")
+    await state.set_state(AdminAddCategory.name)
+
+@router.message(AdminAddCategory.name)
+async def cat_name(message: Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    await message.answer("Введите ID родительской категории (0 — если верхний уровень):")
+    await state.set_state(AdminAddCategory.parent_id)
+
+@router.message(AdminAddCategory.parent_id)
+async def cat_parent(message: Message, state: FSMContext):
+    data = await state.get_data()
+    try:
+        pid = int(message.text)
+        if pid == 0:
+            pid = None
+        else:
+            async with AsyncSessionLocal() as session:
+                if not await session.get(Category, pid):
+                    await message.answer("❌ Родительская категория не найдена. Введите ID ещё раз или 0:")
+                    return
+    except:
+        await message.answer("Введите число")
+        return
+    async with AsyncSessionLocal() as session:
+        cat = Category(name=data['name'], parent_id=pid)
+        session.add(cat)
+        await session.commit()
+    await message.answer("✅ Категория добавлена!")
     await state.clear()
 
 # ---------- ПРОМОКОДЫ ----------
@@ -531,7 +668,9 @@ async def user_bal_amount(message: Message, state: FSMContext):
             await log_refill(message.bot, uid, "", amount)
             action = "пополнен" if amount >= 0 else "списан"
             try:
-                await message.bot.send_message(uid, f"💰 Ваш баланс {action} на {abs(amount):.2f}$ администратором.\nТекущий баланс: {user.balance:.2f}$")
+                await message.bot.send_message(uid,
+                    f"{tg_emoji('money', '✅')} Ваш баланс {action} на {abs(amount):.2f}$\nТекущий: {user.balance:.2f}$",
+                    parse_mode="HTML")
             except:
                 pass
             await message.answer(f"Баланс пользователя {uid} изменён. Текущий: {user.balance:.2f}$")
@@ -576,7 +715,9 @@ async def user_ban_exec(message: Message, state: FSMContext):
                 user.ban_reason = reason
                 st = "забанен"
                 try:
-                    await message.bot.send_message(uid, f"🚫 Вы заблокированы.\nПричина: {reason}")
+                    await message.bot.send_message(uid,
+                        f"{tg_emoji('ban', '🚫')} Вы заблокированы.\nПричина: {html.escape(reason)}",
+                        parse_mode="HTML")
                 except:
                     pass
             await session.commit()
@@ -585,7 +726,7 @@ async def user_ban_exec(message: Message, state: FSMContext):
             await message.answer("Пользователь не найден.")
     await state.clear()
 
-# ---------- РАЗЖАЛОВАНИЕ ----------
+# ---------- ОБРАБОТКА РАЗЖАЛОВАНИЙ ----------
 @router.callback_query(F.data.startswith("unban_approve_"))
 async def unban_approve(callback: CallbackQuery):
     req_id = int(callback.data.split("_")[2])
@@ -618,7 +759,7 @@ async def unban_reject(callback: CallbackQuery):
         await callback.message.edit_text(f"❌ Заявка #{req_id} отклонена.")
     await callback.answer()
 
-# ========== ЗАМЕНА (АДМИН, НОВАЯ ЛОГИКА) ==========
+# ========== ЗАМЕНА (АДМИН, ПОЛНАЯ ЛОГИКА) ==========
 @router.callback_query(F.data == "admin_replaces")
 async def admin_replaces(callback: CallbackQuery):
     async with AsyncSessionLocal() as session:
