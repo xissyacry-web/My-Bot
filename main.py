@@ -9,12 +9,17 @@ from handlers.user_handlers import router as user_router
 from handlers.admin_handlers import router as admin_router
 from config import ADMIN_IDS
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8961635368:AAGrLICFaRDceOFDa5RBIlY2274_DKtvs0k")
-ADMIN_IDS = [int(x) for x in os.environ.get("ADMIN_IDS", "1073780833").split(",")]
+# 👇 Новый токен здесь
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8961635368:AAEUcmP_BW1EiBcUS8ClI7_X3HRXU-MJeGs")
+ADMIN_IDS_STR = os.environ.get("ADMIN_IDS", "1073780833")
+ADMIN_IDS = [int(x.strip()) for x in ADMIN_IDS_STR.split(",") if x.strip()]
 
-if not BOT_TOKEN: sys.exit(1)
+if not BOT_TOKEN:
+    sys.exit(1)
 
-async def handle(request): return web.Response(text="Bot is running")
+async def handle(request):
+    return web.Response(text="Bot is running")
+
 async def start_web_server():
     app = web.Application()
     app.router.add_get('/', handle)
@@ -57,7 +62,12 @@ class BanMiddleware(BaseMiddleware):
                 user = await session.get(User, user_id)
                 if user and user.is_banned:
                     if isinstance(event, Message):
-                        await event.answer(f"🚫 Вы заблокированы.\nПричина: {user.ban_reason or 'не указана'}")
+                        await event.answer(
+                            f"🚫 Вы заблокированы.\nПричина: {user.ban_reason or 'не указана'}",
+                            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="Разжаловать", callback_data="unban_request")]
+                            ])
+                        )
                     elif isinstance(event, CallbackQuery):
                         await event.answer("Вы заблокированы.", show_alert=True)
                     return
