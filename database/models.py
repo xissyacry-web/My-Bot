@@ -60,7 +60,7 @@ class ReplaceRequest(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.user_id'))
     purchase_id = Column(Integer, ForeignKey('purchases.id'))
-    log_info = Column(String)             # номер лога и время одной строкой
+    log_info = Column(String)
     photos = Column(Text)
     complaint = Column(Text)
     status = Column(String, default='pending')
@@ -83,4 +83,12 @@ class UnbanRequest(Base):
     photos = Column(Text)
     description = Column(Text)
     status = Column(String, default='pending')
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class UserDiscount(Base):
+    __tablename__ = 'user_discounts'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'), unique=True)
+    percent = Column(Integer)  # 1-10
+    expires_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
