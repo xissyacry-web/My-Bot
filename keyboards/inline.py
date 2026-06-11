@@ -76,5 +76,26 @@ def profile_keyboard(*args, **kwargs):
     return builder.as_markup()
 
 
+def payment_keyboard(*args, **kwargs):
+    """Временная заглушка для импорта payment_keyboard, чтобы не падал деплой"""
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text='💳 Ссылка на оплату',
+            callback_data="check_payment"
+        )
+    )
+    return builder.as_markup()
+
+
+def back_keyboard(*args, **kwargs):
+    """Превентивная заглушка на случай, если импортируется кнопка Назад"""
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="to_main")
+    )
+    return builder.as_markup()
+
+
 # Создаем псевдоним (alias), чтобы старый импорт в хендлерах не ломался
 categories_keyboard = get_market_keyboard
