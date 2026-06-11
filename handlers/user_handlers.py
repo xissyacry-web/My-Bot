@@ -30,7 +30,7 @@ from config import ADMIN_IDS
 router = Router()
 
 # ── ТГП ЭМОДЗИ ИЗ СТИКЕРПАКА (Translucent Pack) ───────────────────────────────
-E_CROWN   = "5276220667182736079" # Используем замену из пака
+E_CROWN   = "5276220667182736079" 
 E_FOLDER  = "5278227821364275264" # 📁
 E_BOX     = "5278540791336165644" # 📦
 E_CHECK   = "5278411813468269386" # ✅
@@ -47,7 +47,22 @@ E_INFO    = "5278753302023004775" # ℹ️
 E_HAMMER  = "5276314275994954605" # 🔨
 E_MINUS   = "5244796895443838315" # ➖
 E_PLUS    = "5242329690135356589" # ➕
-E_SPIN    = "5278304890257436355" # 🎮 (Вместо казино)
+E_SPIN    = "5278304890257436355" # 🎮
+
+# ── ВСПУМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ БЕЗОПАСНОЙ ОТПРАВКИ ТГП-ЭМОДЗИ ────────────────
+async def safe_answer(message: Message, text_with_tg_emoji: str, fallback_text: str, **kwargs):
+    """Пытается отправить текст с кастомными эмодзи, при ошибке отправляет обычный текст"""
+    try:
+        return await message.answer(text_with_tg_emoji, **kwargs)
+    except Exception:
+        return await message.answer(fallback_text, **kwargs)
+
+async def safe_edit_text(callback_query: CallbackQuery, text_with_tg_emoji: str, fallback_text: str, **kwargs):
+    """Пытается отредактировать текст с кастомными эмодзи, при ошибке отправляет обычный текст"""
+    try:
+        return await callback_query.message.edit_text(text_with_tg_emoji, **kwargs)
+    except Exception:
+        return await callback_query.message.edit_text(fallback_text, **kwargs)
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 
@@ -97,11 +112,10 @@ async def cmd_start(message: Message, state: FSMContext):
         if not user:
             await create_user(session, message.from_user.id, message.from_user.username)
             await log_register(message.bot, message.from_user.id, message.from_user.username)
-    await message.answer(
-        f'<tg-emoji id="{E_CROWN}">👑</tg-emoji> <b>Добро пожаловать!</b>\n\nИспользуй меню ниже ↓',
-        parse_mode="HTML",
-        reply_markup=main_menu()
-    )
+            
+    text_tg = f'<tg-emoji id="{E_CROWN}">👑</tg-emoji> <b>Добро пожаловать!</b>\n\nИспользуй меню ниже ↓'
+    text_fb = f'👑 <b>Добро пожаловать!</b>\n\nИспользуй меню ниже ↓'
+    await safe_answer(message, text_tg, text_fb, parse_mode="HTML", reply_markup=main_menu())
 
 # ── CATALOG ───────────────────────────────────────────────────────────────────
 
@@ -111,13 +125,13 @@ async def show_categories(message: Message, state: FSMContext):
     async with AsyncSessionLocal() as session:
         cats = await get_categories(session, parent_id=None)
     if cats:
-        await message.answer(
-            f'<tg-emoji id="{E_FOLDER}">📁</tg-emoji> <b>Каталог</b>',
-            parse_mode="HTML",
-            reply_markup=categories_keyboard(cats)
-        )
+        text_tg = f'<tg-emoji id="{E_FOLDER}">📁</tg-emoji> <b>Каталог</b>'
+        text_fb = f'📁 <b>Каталог</b>'
+        await safe_answer(message, text_tg, text_fb, parse_mode="HTML", reply_markup=categories_keyboard(cats))
     else:
-        await message.answer(f'<tg-emoji id="{E_BOX}">📦</tg-emoji> Каталог пуст', parse_mode="HTML")
+        text_tg = f'<tg-emoji id="{E_BOX}">📦</tg-emoji> Каталог пуст'
+        text_fb = f'📦 Каталог пуст'
+        await safe_answer(message, text_tg, text_fb, parse_mode="HTML")
 
 @router.callback_query(F.data.startswith("cat_"))
 async def category_selected(callback: CallbackQuery):
@@ -130,19 +144,15 @@ async def category_selected(callback: CallbackQuery):
             return
         subcats = await get_categories(session, parent_id=cat_id)
         if subcats:
-            await callback.message.edit_text(
-                f'<tg-emoji id="{E_FOLDER}">📁</tg-emoji> <b>{cat.name}</b>',
-                parse_mode="HTML",
-                reply_markup=categories_keyboard(subcats)
-            )
+            text_tg = f'<tg-emoji id="{E_FOLDER}">📁</tg-emoji> <b>{cat.name}</b>'
+            text_fb = f'📁 <b>{cat.name}</b>'
+            await safe_edit_text(callback, text_tg, text_fb, parse_mode="HTML", reply_markup=categories_keyboard(subcats))
         else:
             products = await get_products_by_category(session, cat_id)
             if products:
-                await callback.message.edit_text(
-                    f'<tg-emoji id="{E_FOLDER}">📁</tg-emoji> <b>{cat.name}</b>\n\nВыбери товар:',
-                    parse_mode="HTML",
-                    reply_markup=products_keyboard(products)
-                )
+                text_tg = f'<tg-emoji id="{E_FOLDER}">📁</tg-emoji> <b>{cat.name}</b>\n\nВыбери товар:'
+                text_fb = f'📁 <b>{cat.name}</b>\n\nВыбери товар:'
+                await safe_edit_text(callback, text_tg, text_fb, parse_mode="HTML", reply_markup=products_keyboard(products))
             else:
                 await callback.answer("Товаров нет", show_alert=True)
     await callback.answer()
@@ -152,11 +162,9 @@ async def back_to_categories(callback: CallbackQuery):
     async with AsyncSessionLocal() as session:
         cats = await get_categories(session, parent_id=None)
     if cats:
-        await callback.message.edit_text(
-            f'<tg-emoji id="{E_FOLDER}">📁</tg-emoji> <b>Каталог</b>',
-            parse_mode="HTML",
-            reply_markup=categories_keyboard(cats)
-        )
+        text_tg = f'<tg-emoji id="{E_FOLDER}">📁</tg-emoji> <b>Каталог</b>'
+        text_fb = f'📁 <b>Каталог</b>'
+        await safe_edit_text(callback, text_tg, text_fb, parse_mode="HTML", reply_markup=categories_keyboard(cats))
     else:
         await callback.message.edit_text("Каталог пуст")
     await callback.answer()
@@ -178,15 +186,22 @@ async def buy_show_product(callback: CallbackQuery, state: FSMContext):
         else:
             price_line = f"💰 <b>{product.price}$</b>"
 
-        text = (
+        text_tg = (
             f'<tg-emoji id="{E_BOX}">📦</tg-emoji> <b>{product.name}</b>\n\n'
             f"{product.description or 'Описание отсутствует'}\n\n"
             f"{price_line}\n"
             f'<tg-emoji id="{E_CLOCK}">🕓</tg-emoji> В наличии: {qty} шт.\n\n'
             f"Укажите количество кнопками ниже:"
         )
-    # Отправляем инлайн клавиатуру-счетчик (начинаем с 1 шт.)
-    await callback.message.answer(text, parse_mode="HTML", reply_markup=get_inline_qty_keyboard(product_id, 1))
+        text_fb = (
+            f'📦 <b>{product.name}</b>\n\n'
+            f"{product.description or 'Описание отсутствует'}\n\n"
+            f"{price_line}\n"
+            f'🕓 В наличии: {qty} шт.\n\n'
+            f"Укажите количество кнопками ниже:"
+        )
+        
+    await safe_answer(callback.message, text_tg, text_fb, parse_mode="HTML", reply_markup=get_inline_qty_keyboard(product_id, 1))
     await callback.answer()
 
 # ── ИНТЕРАКТИВНЫЙ ВЫБОР КОЛИЧЕСТВА ТОВАРА ───────────────────────────────────────
@@ -212,7 +227,6 @@ async def process_qty_change(callback: CallbackQuery, state: FSMContext):
         if action == "minus":
             new_qty = max(1, current_qty - 1)
         elif action == "plus":
-            # Если товар не безлимитный, ограничиваем остатком на складе
             if product.quantity > 0 and current_qty >= product.quantity:
                 await callback.answer(f"Максимально доступно: {product.quantity} шт.", show_alert=True)
                 return
@@ -231,21 +245,24 @@ async def process_qty_change(callback: CallbackQuery, state: FSMContext):
                 qleft = result.get('quantity_left', 0)
                 qleft_str = f"{qleft} шт." if isinstance(qleft, int) and qleft > 0 else "∞"
                 
-                # Вот здесь внешние кавычки заменены на двойные, чтобы не конфликтовать с 'total_price'
-                text = (
+                text_tg = (
                     f'<tg-emoji id="{E_CHECK}">✅</tg-emoji> <b>Куплено {current_qty} шт.</b>\n'
-                    f"<tg-emoji id=\"{E_WALLET}\">👝</tg-emoji> Итого: {result.get('total_price', 0):.2f}$\n"
+                    f'<tg-emoji id="{E_WALLET}">👝</tg-emoji> Итого: {result.get("total_price", 0):.2f}$\n'
                     f"Баланс: {result['balance']:.2f}$\n"
                     f'<tg-emoji id="{E_BOX}">📦</tg-emoji> Осталось: {qleft_str}'
                 )
-                await callback.message.edit_text(text, parse_mode="HTML")
-
+                text_fb = (
+                    f'✅ <b>Куплено {current_qty} шт.</b>\n'
+                    f'👝 Итого: {result.get("total_price", 0):.2f}$\n'
+                    f"Баланс: {result['balance']:.2f}$\n"
+                    f'📦 Осталось: {qleft_str}'
+                )
+                await safe_edit_text(callback, text_tg, text_fb, parse_mode="HTML")
 
                 if result.get("content"):
-                    await callback.message.answer(
-                        f'<tg-emoji id="{E_BOOKS}">📚</tg-emoji> <b>Ваш товар:</b>\n\n<code>{result["content"]}</code>',
-                        parse_mode="HTML"
-                    )
+                    txt_books_tg = f'<tg-emoji id="{E_BOOKS}">📚</tg-emoji> <b>Ваш товар:</b>\n\n<code>{result["content"]}</code>'
+                    txt_books_fb = f'📚 <b>Ваш товар:</b>\n\n<code>{result["content"]}</code>'
+                    await safe_answer(callback.message, txt_books_tg, txt_books_fb, parse_mode="HTML")
                 if result.get("file_id"):
                     try:
                         await callback.message.answer_document(result["file_id"])
@@ -258,11 +275,16 @@ async def process_qty_change(callback: CallbackQuery, state: FSMContext):
                     lines=result.get('selected_lines', [])
                 )
             else:
-                await callback.message.edit_text(f'<tg-emoji id="{E_WARNING}">⚠️</tg-emoji> {result["error"]}', parse_mode="HTML")
+                txt_warn_tg = f'<tg-emoji id="{E_WARNING}">⚠️</tg-emoji> {result["error"]}'
+                txt_warn_fb = f'⚠️ {result["error"]}'
+                await safe_edit_text(callback, txt_warn_tg, txt_warn_fb, parse_mode="HTML")
             return
 
     if new_qty != current_qty:
-        await callback.message.edit_reply_markup(reply_markup=get_inline_qty_keyboard(product_id, new_qty))
+        try:
+            await callback.message.edit_reply_markup(reply_markup=get_inline_qty_keyboard(product_id, new_qty))
+        except Exception:
+            pass
     await callback.answer()
 
 # ── PROFILE ───────────────────────────────────────────────────────────────────
@@ -278,34 +300,48 @@ async def profile(message: Message, state: FSMContext):
         )).scalars().all())
 
     days = (datetime.utcnow() - user.registered_at).days
-    disc_line = ""
+    disc_line_tg = ""
+    disc_line_fb = ""
     if disc:
         left = disc.expires_at - datetime.utcnow()
         h = int(left.total_seconds() // 3600)
-        disc_line = f'\n<tg-emoji id="{E_STAR}">⭐️</tg-emoji> Скидка: <b>{disc.percent}%</b> (ещё {h}ч.)'
+        disc_line_tg = f'\n<tg-emoji id="{E_STAR}">⭐️</tg-emoji> Скидка: <b>{disc.percent}%</b> (ещё {h}ч.)'
+        disc_line_fb = f'\n⭐️ Скидка: <b>{disc.percent}%</b> (ещё {h}ч.)'
 
-    text = (
+    text_tg = (
         f'<tg-emoji id="{E_USER}">👤</tg-emoji> <b>Профиль</b>\n\n'
         f"ID: <code>{user.user_id}</code>\n"
         f"Username: @{user.username or '—'}\n"
-        f'<tg-emoji id="{E_WALLET}">👝</tg-emoji> Баланс: <b>{user.balance:.2f}$</b>\n'  # <-- Вот тут исправил " на '
+        f'<tg-emoji id="{E_WALLET}">👝</tg-emoji> Баланс: <b>{user.balance:.2f}$</b>\n'
         f'<tg-emoji id="{E_BRIEF}">💼</tg-emoji> Покупок: {purchases_count}\n'
         f'<tg-emoji id="{E_CLOCK}">🕓</tg-emoji> Дней с нами: {days}'
-        f"{disc_line}"
+        f"{disc_line_tg}"
+    )
+    text_fb = (
+        f'👤 <b>Профиль</b>\n\n'
+        f"ID: <code>{user.user_id}</code>\n"
+        f"Username: @{user.username or '—'}\n"
+        f'👝 Баланс: <b>{user.balance:.2f}$</b>\n'
+        f'💼 Покупок: {purchases_count}\n'
+        f'🕓 Дней с нами: {days}'
+        f"{disc_line_fb}"
     )
 
-    await message.answer(text, parse_mode="HTML", reply_markup=profile_keyboard())
+    await safe_answer(message, text_tg, text_fb, parse_mode="HTML", reply_markup=profile_keyboard())
 
 @router.callback_query(F.data == "profile_back")
 async def profile_back(callback: CallbackQuery):
-    await callback.message.edit_reply_markup(reply_markup=profile_keyboard())
+    try:
+        await callback.message.edit_reply_markup(reply_markup=profile_keyboard())
+    except Exception:
+        pass
     await callback.answer()
 
 # ── TOPUP ─────────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "profile_topup")
 async def profile_topup(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer(f'<tg-emoji id="{E_WALLET}">👝</tg-emoji> Введите сумму пополнения ($):', parse_mode="HTML")
+    await safe_answer(callback.message, f'<tg-emoji id="{E_WALLET}">👝</tg-emoji> Введите сумму пополнения ($):', "👝 Введите сумму пополнения ($):", parse_mode="HTML")
     await state.set_state(ReplenishBalance.amount)
     await callback.answer()
 
@@ -327,11 +363,10 @@ async def process_amount(message: Message, state: FSMContext):
     async with AsyncSessionLocal() as session:
         session.add(Invoice(user_id=message.from_user.id, invoice_id=inv['invoice_id'], amount=amount))
         await session.commit()
-    await message.answer(
-        f'<tg-emoji id="{E_WALLET}">👝</tg-emoji> Счёт на <b>{amount}$</b> создан.\nОплатите и нажмите «Проверить».',
-        parse_mode="HTML",
-        reply_markup=payment_keyboard(inv['pay_url'])
-    )
+        
+    text_tg = f'<tg-emoji id="{E_WALLET}">👝</tg-emoji> Счёт на <b>{amount}$</b> создан.\nОплатите и нажмите «Проверить».'
+    text_fb = f'👝 Счёт на <b>{amount}$</b> создан.\nОплатите и нажмите «Проверить».'
+    await safe_answer(message, text_tg, text_fb, parse_mode="HTML", reply_markup=payment_keyboard(inv['pay_url']))
     await state.clear()
 
 @router.callback_query(F.data == "check_payment")
@@ -351,15 +386,12 @@ async def check_payment(callback: CallbackQuery):
             user = await session.get(User, user_id)
             user.balance += inv.amount
             await session.commit()
-            await callback.message.answer(
-                f'<tg-emoji id="{E_CHECK}">✅</tg-emoji> Зачислено <b>{inv.amount:.2f}$</b>',
-                parse_mode="HTML"
-            )
+            await safe_answer(callback.message, f'<tg-emoji id="{E_CHECK}">✅</tg-emoji> Зачислено <b>{inv.amount:.2f}$</b>', f'✅ Зачислено <b>{inv.amount:.2f}$</b>', parse_mode="HTML")
             await log_refill(callback.bot, user_id, callback.from_user.username, inv.amount)
         elif data and data['status'] == 'expired':
             inv.status = 'expired'
             await session.commit()
-            await callback.message.answer(f'<tg-emoji id="{E_CLOCK}">🕓</tg-emoji> Счёт истёк.', parse_mode="HTML")
+            await safe_answer(callback.message, f'<tg-emoji id="{E_CLOCK}">🕓</tg-emoji> Счёт истёк.', '🕓 Счёт истёк.', parse_mode="HTML")
         else:
             await callback.answer("Оплата не поступила.", show_alert=True)
     await callback.answer()
@@ -368,7 +400,7 @@ async def check_payment(callback: CallbackQuery):
 
 @router.callback_query(F.data == "profile_promo")
 async def promo_start(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer(f'<tg-emoji id="{E_GIFT}">🎁</tg-emoji> Введите промокод:', parse_mode="HTML")
+    await safe_answer(callback.message, f'<tg-emoji id="{E_GIFT}">🎁</tg-emoji> Введите промокод:', "🎁 Введите промокод:", parse_mode="HTML")
     await state.set_state(PromocodeInput.code)
     await callback.answer()
 
@@ -385,23 +417,20 @@ async def promocode_apply(message: Message, state: FSMContext):
         promo = await session.get(Promocode, code)
         used = [c.strip() for c in user.used_promocodes.split(',') if c.strip()]
         if code in used:
-            await message.answer(f'<tg-emoji id="{E_BAN}">🚫</tg-emoji> Уже использован.', parse_mode="HTML")
+            await safe_answer(message, f'<tg-emoji id="{E_BAN}">🚫</tg-emoji> Уже использован.', '🚫 Уже использован.', parse_mode="HTML")
         elif not promo or not promo.is_active:
-            await message.answer(f'<tg-emoji id="{E_BAN}">🚫</tg-emoji> Недействителен.', parse_mode="HTML")
+            await safe_answer(message, f'<tg-emoji id="{E_BAN}">🚫</tg-emoji> Недействителен.', '🚫 Недействителен.', parse_mode="HTML")
         elif promo.expires_at and promo.expires_at < datetime.utcnow():
-            await message.answer(f'<tg-emoji id="{E_CLOCK}">🕓</tg-emoji> Истёк.', parse_mode="HTML")
+            await safe_answer(message, f'<tg-emoji id="{E_CLOCK}">🕓</tg-emoji> Истёк.', '🕓 Истёк.', parse_mode="HTML")
         elif promo.max_activations is not None and promo.used_count >= promo.max_activations:
-            await message.answer(f'<tg-emoji id="{E_BAN}">🚫</tg-emoji> Лимит исчерпан.', parse_mode="HTML")
+            await safe_answer(message, f'<tg-emoji id="{E_BAN}">🚫</tg-emoji> Лимит исчерпан.', '🚫 Лимит исчерпан.', parse_mode="HTML")
         else:
             user.balance += promo.bonus_amount
             promo.used_count += 1
             used.append(code)
             user.used_promocodes = ','.join(used)
             await session.commit()
-            await message.answer(
-                f'<tg-emoji id="{E_GIFT}">🎁</tg-emoji> <b>+{promo.bonus_amount:.2f}$</b> на баланс!',
-                parse_mode="HTML"
-            )
+            await safe_answer(message, f'<tg-emoji id="{E_GIFT}">🎁</tg-emoji> <b>+{promo.bonus_amount:.2f}$</b> на баланс!', f'🎁 <b>+{promo.bonus_amount:.2f}$</b> на баланс!', parse_mode="HTML")
             await log_promo(message.bot, user_id, message.from_user.username, code, promo.bonus_amount)
     await state.clear()
 
@@ -418,11 +447,9 @@ async def profile_history(callback: CallbackQuery):
     if not purchases:
         await callback.answer("Покупок нет.", show_alert=True)
         return
-    await callback.message.edit_text(
-        f'<tg-emoji id="{E_BOOKS}">📚</tg-emoji> <b>Покупки</b> — выбери для деталей:',
-        parse_mode="HTML",
-        reply_markup=history_keyboard(purchases)
-    )
+    text_tg = f'<tg-emoji id="{E_BOOKS}">📚</tg-emoji> <b>Покупки</b> — выбери для деталей:'
+    text_fb = f'📚 <b>Покупки</b> — выбери для деталей:'
+    await safe_edit_text(callback, text_tg, text_fb, parse_mode="HTML", reply_markup=history_keyboard(purchases))
     await callback.answer()
 
 @router.callback_query(F.data.startswith("hist_"))
@@ -436,16 +463,22 @@ async def purchase_detail(callback: CallbackQuery):
         product = await session.get(Product, p.product_id)
         pname = product.name if product else "удалённый товар"
 
-    text = (
+    text_tg = (
         f'<tg-emoji id="{E_BOX}">📦</tg-emoji> <b>{pname}</b>\n'
         f"Кол-во: {p.amount} шт.\n"
         f'<tg-emoji id="{E_WALLET}">👝</tg-emoji> {p.price:.2f}$\n'
         f'<tg-emoji id="{E_CLOCK}">🕓</tg-emoji> {p.purchased_at.strftime("%d.%m.%Y %H:%M")}'
     )
+    text_fb = (
+        f'📦 <b>{pname}</b>\n'
+        f"Кол-во: {p.amount} шт.\n"
+        f'👝 {p.price:.2f}$\n'
+        f'🕓 {p.purchased_at.strftime("%d.%m.%Y %H:%M")}'
+    )
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="◀️ Назад", callback_data="profile_history")
     ]])
-    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    await safe_edit_text(callback, text_tg, text_fb, parse_mode="HTML", reply_markup=kb)
     await callback.answer()
 
 # ── АНИМИРОВАННАЯ РУЛЕТКА СКИДОК ───────────────────────────────────────────────
@@ -459,11 +492,15 @@ async def spin_discount(message: Message, state: FSMContext):
         if existing:
             left = existing.expires_at - datetime.utcnow()
             h = int(left.total_seconds() // 3600)
-            await message.answer(
+            text_tg = (
                 f'<tg-emoji id="{E_STAR}">⭐️</tg-emoji> У тебя уже есть активная скидка <b>{existing.percent}%</b>\n'
-                f'<tg-emoji id="{E_CLOCK}">🕓</tg-emoji> Действует ещё {h} ч.',
-                parse_mode="HTML"
+                f'<tg-emoji id="{E_CLOCK}">🕓</tg-emoji> Действует ещё {h} ч.'
             )
+            text_fb = (
+                f'⭐️ У тебя уже есть активная скидка <b>{existing.percent}%</b>\n'
+                f'🕓 Действует ещё {h} ч.'
+            )
+            await safe_answer(message, text_tg, text_fb, parse_mode="HTML")
             return
 
         percent = random.randint(1, 10)
@@ -481,7 +518,7 @@ async def spin_discount(message: Message, state: FSMContext):
         await session.commit()
 
     # Рандомайзер-эффект крутящихся скидок в чате
-    frames = [
+    frames_tg = [
         f'<tg-emoji id="{E_SPIN}">🎮</tg-emoji> [ 🔄 ВРАЩАЕМ БАРАБАН... ]',
         f'<tg-emoji id="{E_SPIN}">🎮</tg-emoji> [ 🎰 СКИДКА 1% ]',
         f'<tg-emoji id="{E_SPIN}">🎮</tg-emoji> [ 🔥 СКИДКА 10% ]',
@@ -489,34 +526,66 @@ async def spin_discount(message: Message, state: FSMContext):
         f'<tg-emoji id="{E_SPIN}">🎮</tg-emoji> [ 🚀 СКИДКА 3% ]',
         f'<tg-emoji id="{E_SPIN}">🎮</tg-emoji> [ 💎 СКИДКА 7% ]',
     ]
+    frames_fb = [
+        '🎮 [ 🔄 ВРАЩАЕМ БАРАБАН... ]',
+        '🎮 [ 🎰 СКИДКА 1% ]',
+        '🎮 [ 🔥 СКИДКА 10% ]',
+        '🎮 [ ⚡ СКИДКА 5% ]',
+        '🎮 [ 🚀 СКИДКА 3% ]',
+        '🎮 [ 💎 СКИДКА 7% ]',
+    ]
     
-    spin_msg = await message.answer(f'<tg-emoji id="{E_SPIN}">🎮</tg-emoji> <b>Запуск рулетки скидок...</b>', parse_mode="HTML")
+    # Флаг, используем ли кастомные эмодзи для анимации (сбрасывается в False, если падает)
+    use_tg_emoji = True
+    try:
+        spin_msg = await message.answer(f'<tg-emoji id="{E_SPIN}">🎮</tg-emoji> <b>Запуск рулетки скидок...</b>', parse_mode="HTML")
+    except Exception:
+        use_tg_emoji = False
+        spin_msg = await message.answer('🎮 <b>Запуск рулетки скидок...</b>', parse_mode="HTML")
     
     for _ in range(2):
-        random.shuffle(frames)
-        for frame in frames:
-            try:
-                await spin_msg.edit_text(f"<b>{frame}</b>", parse_mode="HTML")
-                await asyncio.sleep(0.2)
-            except Exception:
-                pass
+        if use_tg_emoji:
+            random.shuffle(frames_tg)
+            for frame in frames_tg:
+                try:
+                    await spin_msg.edit_text(f"<b>{frame}</b>", parse_mode="HTML")
+                    await asyncio.sleep(0.2)
+                except Exception:
+                    use_tg_emoji = False  # Если по ходу упало, переключаемся на резерв
+                    break
+        if not use_tg_emoji:
+            random.shuffle(frames_fb)
+            for frame in frames_fb:
+                try:
+                    await spin_msg.edit_text(f"<b>{frame}</b>", parse_mode="HTML")
+                    await asyncio.sleep(0.2)
+                except Exception:
+                    pass
 
-    # Конечный результат
-    await spin_msg.edit_text(
+    # Конечный результат рулетки
+    res_tg = (
         f'<tg-emoji id="{E_STAR}">⭐️</tg-emoji> Тебе выпала скидка <b>{percent}%</b> на 24 часа!\n\n'
-        f'<tg-emoji id="{E_CHECK}">✅</tg-emoji> Применяется автоматически при покупке.',
-        parse_mode="HTML"
+        f'<tg-emoji id="{E_CHECK}">✅</tg-emoji> Применяется автоматически при покупке.'
     )
+    res_fb = (
+        f'⭐️ Тебе выпала скидка <b>{percent}%</b> на 24 часа!\n\n'
+        f'✅ Применяется автоматически при покупке.'
+    )
+    
+    if use_tg_emoji:
+        try:
+            await spin_msg.edit_text(res_tg, parse_mode="HTML")
+        except Exception:
+            await spin_msg.edit_text(res_fb, parse_mode="HTML")
+    else:
+        await spin_msg.edit_text(res_fb, parse_mode="HTML")
 
 # ── SUPPORT ───────────────────────────────────────────────────────────────────
 
 @router.message(F.text == "🆘 Поддержка")
 async def support(message: Message, state: FSMContext):
     await clear_state(message, state)
-    await message.answer(
-        f'<tg-emoji id="{E_INFO}">ℹ️</tg-emoji> Поддержка: @XissyaSup',
-        parse_mode="HTML"
-    )
+    await safe_answer(message, f'<tg-emoji id="{E_INFO}">ℹ️</tg-emoji> Поддержка: @XissyaSup', "ℹ️ Поддержка: @XissyaSup", parse_mode="HTML")
 
 # ── REPLACE ───────────────────────────────────────────────────────────────────
 
@@ -528,9 +597,9 @@ async def replace_start(message: Message, state: FSMContext):
             select(Purchase).where(Purchase.user_id == message.from_user.id, Purchase.status == 'completed')
         )).first()
         if not exists:
-            await message.answer(f'<tg-emoji id="{E_WARNING}">⚠️</tg-emoji> Нет завершённых покупок.', parse_mode="HTML")
+            await safe_answer(message, f'<tg-emoji id="{E_WARNING}">⚠️</tg-emoji> Нет завершённых покупок.', '⚠️ Нет завершённых покупок.', parse_mode="HTML")
             return
-    await message.answer(f'<tg-emoji id="{E_HAMMER}">🔨</tg-emoji> Укажи номер лога и время покупки:', parse_mode="HTML")
+    await safe_answer(message, f'<tg-emoji id="{E_HAMMER}">🔨</tg-emoji> Укажи номер лога и время покупки:', '🔨 Укажи номер лога и время покупки:', parse_mode="HTML")
     await state.set_state(ReplaceRequestStates.log_time)
 
 @router.message(ReplaceRequestStates.log_time)
@@ -577,7 +646,7 @@ async def replace_complaint(message: Message, state: FSMContext):
                 data['log_info'], data.get('photos', []), message.text
             )
         except ValueError as e:
-            await message.answer(f'<tg-emoji id="{E_WARNING}">⚠️</tg-emoji> {e}', parse_mode="HTML")
+            await safe_answer(message, f'<tg-emoji id="{E_WARNING}">⚠️</tg-emoji> {e}', f'⚠️ {e}', parse_mode="HTML")
             await state.clear()
             return
         for admin_id in ADMIN_IDS:
@@ -601,7 +670,8 @@ async def replace_complaint(message: Message, state: FSMContext):
                 )
             except Exception as e:
                 print(f"Admin notify error: {e}")
-    await message.answer(f'<tg-emoji id="{E_CHECK}">✅</tg-emoji> Заявка отправлена.', parse_mode="HTML")
+                
+    await safe_answer(message, f'<tg-emoji id="{E_CHECK}">✅</tg-emoji> Заявка отправлена.', '✅ Заявка отправлена.', parse_mode="HTML")
     await state.clear()
 
 # ── UNBAN ─────────────────────────────────────────────────────────────────────
@@ -673,7 +743,8 @@ async def unban_confirm_cb(callback: CallbackQuery, state: FSMContext):
                 )
             except Exception as e:
                 print(f"Admin unban notify error: {e}")
-    await callback.message.answer(f'<tg-emoji id="{E_CHECK}">✅</tg-emoji> Заявка отправлена.', parse_mode="HTML")
+                
+    await safe_answer(callback.message, f'<tg-emoji id="{E_CHECK}">✅</tg-emoji> Заявка отправлена.', '✅ Заявка отправлена.', parse_mode="HTML")
     await state.clear()
 
 @router.callback_query(UnbanProcess.confirm, F.data == "unban_cancel")
