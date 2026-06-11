@@ -230,13 +230,16 @@ async def process_qty_change(callback: CallbackQuery, state: FSMContext):
             if result["success"]:
                 qleft = result.get('quantity_left', 0)
                 qleft_str = f"{qleft} шт." if isinstance(qleft, int) and qleft > 0 else "∞"
+                
+                # Вот здесь внешние кавычки заменены на двойные, чтобы не конфликтовать с 'total_price'
                 text = (
                     f'<tg-emoji id="{E_CHECK}">✅</tg-emoji> <b>Куплено {current_qty} шт.</b>\n'
-                    f'<tg-emoji id="{E_WALLET}">👝</tg-emoji> Итого: {result.get('total_price', 0):.2f}$\n'
+                    f"<tg-emoji id=\"{E_WALLET}\">👝</tg-emoji> Итого: {result.get('total_price', 0):.2f}$\n"
                     f"Баланс: {result['balance']:.2f}$\n"
                     f'<tg-emoji id="{E_BOX}">📦</tg-emoji> Осталось: {qleft_str}'
                 )
                 await callback.message.edit_text(text, parse_mode="HTML")
+
 
                 if result.get("content"):
                     await callback.message.answer(
