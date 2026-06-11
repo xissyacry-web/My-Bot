@@ -64,5 +64,17 @@ def products_keyboard(*args, **kwargs):
     return get_market_keyboard()
 
 
+def profile_keyboard(*args, **kwargs):
+    """Временная заглушка для импорта profile_keyboard, чтобы не падал деплой"""
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text='<tg-emoji id="5276398496008663230">👝</tg-emoji> Пополнить баланс',
+            callback_data="top_up"
+        )
+    )
+    return builder.as_markup()
+
+
 # Создаем псевдоним (alias), чтобы старый импорт в хендлерах не ломался
 categories_keyboard = get_market_keyboard
