@@ -60,7 +60,7 @@ def get_quantity_keyboard(quantity: int):
     return builder.as_markup()
 
 
-# --- Динамический перехват любых недостающих импортов ---
+# --- Динамический перехват любых недостающих импортов (history_keyboard, profile_keyboard и т.д.) ---
 
 def _generic_stub_keyboard(*args, **kwargs):
     """Универсальная заглушка, возвращающая главное меню, если кнопка не найдена"""
@@ -71,14 +71,11 @@ class _FallbackModule(object):
         self.original_module = original_module
 
     def __getattr__(self, name):
-        # Если имя есть в оригинальном файле (функции выше), возвращаем его
         if hasattr(self.original_module, name):
             return getattr(self.original_module, name)
-        # Специальный псевдоним для старого главного меню
         if name == 'categories_keyboard':
             return get_market_keyboard
-        # Для всех остальных несуществующих клавиатур (history_keyboard, etc.) отдаем заглушку
         return _generic_stub_keyboard
 
-# Магия Python: подменяем текущий модуль оберткой, которая никогда не выкинет ImportError
+# Магия подмены модуля, чтобы деплой на Render не падал из-за импортов хендлеров
 sys.modules[__name__] = _FallbackModule(sys.modules[__name__])
