@@ -4,14 +4,10 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiohttp import web
 from database.database import init_db, AsyncSessionLocal
 from database.models import Invoice, User
-from services.payment_service import check_pending_invoices
+from services.payment_service import get_invoice
 from handlers.user_handlers import router as user_router
 from handlers.admin_handlers import router as admin_router
-from config import ADMIN_IDS
-
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8961635368:AAEUcmP_BW1EiBcUS8ClI7_X3HRXU-MJeGs")
-ADMIN_IDS_STR = os.environ.get("ADMIN_IDS", "1073780833")
-ADMIN_IDS = [int(x.strip()) for x in ADMIN_IDS_STR.split(",") if x.strip()]
+from config import ADMIN_IDS, BOT_TOKEN
 
 if not BOT_TOKEN:
     sys.exit(1)
@@ -27,6 +23,7 @@ async def start_web_server():
     port = int(os.environ.get("PORT", 8000))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
+    print(f"Web server on port {port}")
 
 async def payment_checker(bot: Bot):
     while True:
@@ -35,24 +32,25 @@ async def payment_checker(bot: Bot):
                 from sqlalchemy import select
                 result = await session.execute(select(Invoice).where(Invoice.status == 'active'))
                 for inv in result.scalars().all():
-                    from services.payment_service import get_invoice
                     data = await get_invoice(inv.invoice_id)
                     if data and data['status'] == 'paid':
                         inv.status = 'paid'
                         user = await session.get(User, inv.user_id)
                         if user:
                             user.balance += inv.amount
-                            try: await bot.send_message(inv.user_id, f"✅ Платёж {inv.amount} USDT зачислен!")
-                            except: pass
-                            from services.log_service import log_refill
-                            await log_refill(bot, inv.user_id, "", inv.amount)
+                            try:
+                                await bot.send_message(inv.user_id, f"✅ Платёж {inv.amount:.2f}$ зачислен!")
+                            except Exception:
+                                pass
                     elif data and data['status'] == 'expired':
                         inv.status = 'expired'
                 await session.commit()
-        except Exception as e: print(f"Payment checker error: {e}")
+        except Exception as e:
+            print(f"Payment checker error: {e}")
         await asyncio.sleep(10)
 
 from aiogram import BaseMiddleware
+
 class BanMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
         user_id = event.from_user.id if hasattr(event, 'from_user') else None
@@ -63,9 +61,9 @@ class BanMiddleware(BaseMiddleware):
                     if isinstance(event, Message):
                         await event.answer(
                             f"🚫 Вы заблокированы.\nПричина: {user.ban_reason or 'не указана'}",
-                            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                                [InlineKeyboardButton(text="Разжаловать", callback_data="unban_request")]
-                            ])
+                            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                                InlineKeyboardButton(text="Разжаловать", callback_data="unban_request")
+                            ]])
                         )
                     elif isinstance(event, CallbackQuery):
                         await event.answer("Вы заблокированы.", show_alert=True)
@@ -81,6 +79,7 @@ async def main():
     dp.include_router(admin_router)
     asyncio.create_task(start_web_server())
     asyncio.create_task(payment_checker(bot))
+    print("Bot started.")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
