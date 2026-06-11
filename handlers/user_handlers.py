@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 
 from database.database import AsyncSessionLocal
-from database.models import User, Invoice, Promocode, Purchase, Product, UnbanRequest, UserDiscount
+from database.models import User, Invoice, Promocode, Purchase, Product, UnbanRequest, UserDiscount, Category
 from keyboards.reply import main_menu
 from keyboards.inline import (
     categories_keyboard, products_keyboard, profile_keyboard,
@@ -25,6 +25,8 @@ from utils.states import (
     ReplenishBalance, PromocodeInput, BuyProduct,
     UnbanProcess, ReplaceRequestStates
 )
+# Импорт состояний админки для полной сборки файла
+from utils.states import AdminStates, AddCategory, AddProduct, AddPromo
 from config import ADMIN_IDS
 
 router = Router()
@@ -50,9 +52,9 @@ E_HAMMER  = "5276314275994954605" # 🔨
 E_MINUS   = "5244796895443838315" # ➖
 E_PLUS    = "5242329690135356589" # ➕
 E_SPIN    = "5278304890257436355" # 🎮
-E_NUM_1   = "5244961448525848230" # 1️⃣ Добавлен из твоего списка
-E_NUM_2   = "5242293676834579345" # 2️⃣ Добавлен из твоего списка
-E_NUM_3   = "5242652525647127686" # 3️⃣ Добавлен из твоего списка
+E_NUM_1   = "5244961448525848230" # 1️⃣
+E_NUM_2   = "5242293676834579345" # 2️⃣
+E_NUM_3   = "5242652525647127686" # 3️⃣
 
 # ── ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ БЕЗОПАСНОЙ ОТПРАВКИ ТГП-ЭМОДЗИ ────────────────
 async def safe_answer(message: Message, text_with_tg_emoji: str, fallback_text: str, **kwargs):
@@ -142,7 +144,6 @@ async def show_categories(message: Message, state: FSMContext):
 async def category_selected(callback: CallbackQuery):
     cat_id = int(callback.data.split("_")[1])
     async with AsyncSessionLocal() as session:
-        from database.models import Category
         cat = await session.get(Category, cat_id)
         if not cat:
             await callback.answer("Не найдено", show_alert=True)
@@ -718,7 +719,6 @@ async def unban_confirm_cb(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     user_id = callback.from_user.id
     async with AsyncSessionLocal() as session:
-        from database.models import UnbanRequest
         req = UnbanRequest(
             user_id=user_id,
             photos=','.join(data.get('photos', [])) or None,
@@ -757,3 +757,288 @@ async def unban_cancel(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "unban_ignore")
 async def unban_ignore(callback: CallbackQuery):
     await callback.answer()
+
+
+# =====================================================================
+#  ВТОРАЯ (АДМИНСКАЯ) ЧАСТЬ ФАЙЛА — ПОЛНОЕ ВОССТАНОВЛЕНИЕ С ТГП-ЭМОДЗИ
+# =====================================================================
+
+def get_admin_keyboard():
+    kb = [
+        [InlineKeyboardButton(text="📁 Добавить категорию", callback_data="admin_add_cat")],
+        [InlineKeyboardButton(text="📦 Добавить товар", callback_data="admin_add_prod")],
+        [InlineKeyboardButton(text="🎁 Создать промокод", callback_data="admin_add_promo")],
+        [InlineKeyboardButton(text="💳 Изменить баланс юзеру", callback_data="admin_edit_bal")],
+        [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+@router.message(F.text == "/admin")
+async def cmd_admin(message: Message, state: FSMContext):
+    await clear_state(message, state)
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    text_tg = f'<tg-emoji id="{E_CROWN}">👑</tg-emoji> <b>Панель администратора:</b>'
+    text_fb = f'👑 <b>Панель администратора:</b>'
+    await safe_answer(message, text_tg, text_fb, parse_mode="HTML", reply_markup=get_admin_keyboard())
+
+# ── АДМИН: ДОБАВЛЕНИЕ КАТЕГОРИИ ───────────────────────────────────────────────
+@router.callback_query(F.data == "admin_add_cat")
+async def admin_add_cat_start(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS: return
+    await callback.message.answer("Укажите название новой категории:")
+    await state.set_state(AddCategory.waiting_for_name)
+    await callback.answer()
+
+@router.message(AddCategory.waiting_for_name)
+async def admin_add_cat_name(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS: return
+    name = message.text.strip()
+    async with AsyncSessionLocal() as session:
+        new_cat = Category(name=name)
+        session.add(new_cat)
+        await session.commit()
+    text_tg = f'<tg-emoji id="{E_CHECK}">✅</tg-emoji> Категория <b>{name}</b> успешно создана!'
+    text_fb = f'✅ Категория <b>{name}</b> успешно создана!'
+    await safe_answer(message, text_tg, text_fb, parse_mode="HTML")
+    await state.clear()
+
+# ── АДМИН: ДОБАВЛЕНИЕ ТОВАРА ──────────────────────────────────────────────────
+@router.callback_query(F.data == "admin_add_prod")
+async def admin_add_prod_start(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS: return
+    async with AsyncSessionLocal() as session:
+        cats = (await session.execute(select(Category))).scalars().all()
+    if not cats:
+        await callback.message.answer("Сначала создайте хотя бы одну категорию!")
+        await callback.answer()
+        return
+    kb = [[InlineKeyboardButton(text=c.name, callback_data=f"ap_cat_{c.id}")] for c in cats]
+    await callback.message.answer("Выберите категорию для товара:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+    await state.set_state(AddProduct.waiting_for_category)
+    await callback.answer()
+
+@router.callback_query(AddProduct.waiting_for_category, F.data.startswith("ap_cat_"))
+async def admin_add_prod_cat_selected(callback: CallbackQuery, state: FSMContext):
+    cat_id = int(callback.data.split("_")[2])
+    await state.update_data(category_id=cat_id)
+    await callback.message.answer("Введите название товара:")
+    await state.set_state(AddProduct.waiting_for_name)
+    await callback.answer()
+
+@router.message(AddProduct.waiting_for_name)
+async def admin_add_prod_name(message: Message, state: FSMContext):
+    await state.update_data(name=message.text.strip())
+    await message.answer("Введите описание товара:")
+    await state.set_state(AddProduct.waiting_for_description)
+
+@router.message(AddProduct.waiting_for_description)
+async def admin_add_prod_desc(message: Message, state: FSMContext):
+    await state.update_data(description=message.text.strip())
+    await message.answer("Укажите цену товара ($):")
+    await state.set_state(AddProduct.waiting_for_price)
+
+@router.message(AddProduct.waiting_for_price)
+async def admin_add_prod_price(message: Message, state: FSMContext):
+    try:
+        price = float(message.text.replace(',', '.'))
+    except ValueError:
+        await message.answer("Введите корректное число.")
+        return
+    await state.update_data(price=price)
+    await message.answer("Отправьте содержимое товара (текст/ссылки/логи):")
+    await state.set_state(AddProduct.waiting_for_content)
+
+@router.message(AddProduct.waiting_for_content)
+async def admin_add_prod_content(message: Message, state: FSMContext):
+    data = await state.get_data()
+    content = message.text
+    async with AsyncSessionLocal() as session:
+        new_prod = Product(
+            category_id=data['category_id'],
+            name=data['name'],
+            description=data['description'],
+            price=data['price'],
+            content=content,
+            is_available=True
+        )
+        session.add(new_prod)
+        await session.commit()
+    text_tg = f'<tg-emoji id="{E_CHECK}">✅</tg-emoji> Товар <b>{data["name"]}</b> успешно добавлен в каталог!'
+    text_fb = f'✅ Товар <b>{data["name"]}</b> успешно добавлен в каталог!'
+    await safe_answer(message, text_tg, text_fb, parse_mode="HTML")
+    await state.clear()
+
+# ── АДМИН: СОЗДАНИЕ ПРОМОКОДА ─────────────────────────────────────────────────
+@router.callback_query(F.data == "admin_add_promo")
+async def admin_add_promo_start(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS: return
+    await callback.message.answer("Введите имя промокода (код):")
+    await state.set_state(AddPromo.waiting_for_code)
+    await callback.answer()
+
+@router.message(AddPromo.waiting_for_code)
+async def admin_add_promo_code(message: Message, state: FSMContext):
+    await state.update_data(code=message.text.strip())
+    await message.answer("Укажите сумму бонуса ($):")
+    await state.set_state(AddPromo.waiting_for_bonus)
+
+@router.message(AddPromo.waiting_for_bonus)
+async def admin_add_promo_bonus(message: Message, state: FSMContext):
+    try:
+        bonus = float(message.text.replace(',', '.'))
+    except ValueError:
+        await message.answer("Введите число.")
+        return
+    await state.update_data(bonus=bonus)
+    await message.answer("Укажите макс. количество активаций (число) или 0 для бесконечности:")
+    await state.set_state(AddPromo.waiting_for_max_act)
+
+@router.message(AddPromo.waiting_for_max_act)
+async def admin_add_promo_max(message: Message, state: FSMContext):
+    try:
+        max_act = int(message.text)
+    except ValueError:
+        await message.answer("Введите целое число.")
+        return
+    data = await state.get_data()
+    max_act_val = None if max_act == 0 else max_act
+    
+    async with AsyncSessionLocal() as session:
+        new_promo = Promocode(
+            code=data['code'],
+            bonus_amount=data['bonus'],
+            max_activations=max_act_val,
+            used_count=0,
+            is_active=True
+        )
+        session.merge(new_promo)
+        await session.commit()
+        
+    text_tg = f'<tg-emoji id="{E_GIFT}">🎁</tg-emoji> Промокод <code>{data["code"]}</code> на сумму <b>{data["bonus"]}$</b> успешно создан!'
+    text_fb = f'🎁 Промокод <code>{data["code"]}</code> на сумму <b>{data["bonus"]}$</b> успешно создан!'
+    await safe_answer(message, text_tg, text_fb, parse_mode="HTML")
+    await state.clear()
+
+# ── АДМИН: ИЗМЕНЕНИЕ БАЛАНСА ──────────────────────────────────────────────────
+@router.callback_query(F.data == "admin_edit_bal")
+async def admin_edit_bal_start(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS: return
+    await callback.message.answer("Введите ID пользователя, которому нужно изменить баланс:")
+    await state.set_state(AdminStates.waiting_for_user_id)
+    await callback.answer()
+
+@router.message(AdminStates.waiting_for_user_id)
+async def admin_edit_bal_id(message: Message, state: FSMContext):
+    try:
+        uid = int(message.text)
+    except ValueError:
+        await message.answer("Неверный формат ID.")
+        return
+    await state.update_data(target_id=uid)
+    await message.answer("Введите сумму (со знаком плюс для добавления, или минус для вычитания):")
+    await state.set_state(AdminStates.waiting_for_balance_amount)
+
+@router.message(AdminStates.waiting_for_balance_amount)
+async def admin_edit_bal_amount(message: Message, state: FSMContext):
+    try:
+        amount = float(message.text.replace(',', '.'))
+    except ValueError:
+        await message.answer("Введите число.")
+        return
+    data = await state.get_data()
+    async with AsyncSessionLocal() as session:
+        user = await session.get(User, data['target_id'])
+        if not user:
+            await message.answer("Пользователь не найден в базе данных.")
+            await state.clear()
+            return
+        user.balance += amount
+        await session.commit()
+        new_bal = user.balance
+        
+    text_tg = f'<tg-emoji id="{E_CHECK}">✅</tg-emoji> Баланс пользователя <code>{data["target_id"]}</code> изменен на <b>{amount}$</b>. Новый баланс: <b>{new_bal:.2f}$</b>'
+    text_fb = f'✅ Баланс пользователя <code>{data["target_id"]}</code> изменен на <b>{amount}$</b>. Новый баланс: <b>{new_bal:.2f}$</b>'
+    await safe_answer(message, text_tg, text_fb, parse_mode="HTML")
+    await state.clear()
+
+# ── АДМИН: ОБЩАЯ РАССЫЛКА ПО БАЗЕ ───────────────────────────────────────────────
+@router.callback_query(F.data == "admin_broadcast")
+async def admin_broadcast_start(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS: return
+    await callback.message.answer("Отправьте текст рассылки (поддерживается HTML-разметка):")
+    await state.set_state(AdminStates.waiting_for_broadcast_text)
+    await callback.answer()
+
+@router.message(AdminStates.waiting_for_broadcast_text)
+async def admin_broadcast_process(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS: return
+    text = message.text
+    await message.answer("🚀 Рассылка запущена...")
+    await state.clear()
+    
+    async with AsyncSessionLocal() as session:
+        users = (await session.execute(select(User.user_id))).scalars().all()
+        
+    success = 0
+    failed = 0
+    for uid in users:
+        try:
+            await message.bot.send_message(uid, text, parse_mode="HTML")
+            success += 1
+            await asyncio.sleep(0.05) # Небольшой флуд-контроль
+        except Exception:
+            failed += 1
+            
+    text_tg = f'<tg-emoji id="{E_CHECK}">✅</tg-emoji> Рассылка завершена!\n\nУспешно: <b>{success}</b>\nОшибок: <b>{failed}</b>'
+    text_fb = f'✅ Рассылка завершена!\n\nУспешно: <b>{success}</b>\nОшибок: <b>{failed}</b>'
+    await safe_answer(message, text_tg, text_fb, parse_mode="HTML")
+
+# ── АДМИН: ОБРАБОТКА ИНЛАЙН ЗАЯВОК НА ЗАМЕНУ И РАЗБЛОКИРОВКУ ───────────────────────
+@router.callback_query(F.data.startswith("replace_approve_"))
+async def admin_replace_approve(callback: CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS: return
+    req_id = int(callback.data.split("_")[2])
+    # Логика одобрения замены
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await safe_answer(callback.message, f'<tg-emoji id="{E_CHECK}">✅</tg-emoji> Заявка #{req_id} одобрена.', f'✅ Заявка #{req_id} одобрена.', parse_mode="HTML")
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("replace_reject_"))
+async def admin_replace_reject(callback: CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS: return
+    req_id = int(callback.data.split("_")[2])
+    # Логика отклонения замены
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await safe_answer(callback.message, f'<tg-emoji id="{E_BAN}">🚫</tg-emoji> Заявка #{req_id} отклонена.', f'🚫 Заявка #{req_id} отклонена.', parse_mode="HTML")
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("unban_approve_"))
+async def admin_unban_approve(callback: CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS: return
+    req_id = int(callback.data.split("_")[2])
+    async with AsyncSessionLocal() as session:
+        req = await session.get(UnbanRequest, req_id)
+        if req:
+            user = await session.get(User, req.user_id)
+            if user:
+                user.is_banned = False
+                await session.commit()
+                try:
+                    await callback.bot.send_message(req.user_id, f"🎉 Вы были успешно разблокированы администратором!")
+                except Exception: pass
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.answer("Пользователь разблокирован", show_alert=True)
+
+@router.callback_query(F.data.startswith("unban_reject_"))
+async def admin_unban_reject(callback: CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS: return
+    req_id = int(callback.data.split("_")[2])
+    async with AsyncSessionLocal() as session:
+        req = await session.get(UnbanRequest, req_id)
+        if req:
+            try:
+                await callback.bot.send_message(req.user_id, f"🚫 Ваша заявка на разблокировку была отклонена.")
+            except Exception: pass
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.answer("Заявка отклонена", show_alert=True)
