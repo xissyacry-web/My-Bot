@@ -1,6 +1,9 @@
-import asyncio, os, sys
+import asyncio
+import os
+import sys
 from aiogram import Bot, Dispatcher
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.client.default import DefaultBotProperties
 from aiohttp import web
 from database.database import init_db, AsyncSessionLocal
 from database.models import Invoice, User
@@ -72,7 +75,13 @@ class BanMiddleware(BaseMiddleware):
 
 async def main():
     await init_db()
-    bot = Bot(token=BOT_TOKEN)
+    
+    # Включаем HTML парсинг по умолчанию для всех отправляемых сообщений и кнопок
+    bot = Bot(
+        token=BOT_TOKEN, 
+        default_properties=DefaultBotProperties(parse_mode="HTML")
+    )
+    
     dp = Dispatcher()
     dp.update.middleware(BanMiddleware())
     dp.include_router(user_router)
