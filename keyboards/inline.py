@@ -57,3 +57,7 @@ def get_quantity_keyboard(quantity: int):
     )
     
     return builder.as_markup()
+
+
+# Создаем псевдоним (alias), чтобы старый импорт в хендлерах не ломался
+categories_keyboard = get_market_keyboard
