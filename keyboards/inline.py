@@ -1,18 +1,15 @@
-import sys
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 def get_market_keyboard():
-    """Главное меню (чистые и аккуратные кнопки)"""
+    """Главное меню профиля (как на скрине)"""
     builder = InlineKeyboardBuilder()
     
-    builder.row(
-        InlineKeyboardButton(text='👝 Пополнить баланс', callback_data="top_up"),
-        InlineKeyboardButton(text='🎁 Промокод', callback_data="promo")
-    )
-    builder.row(
-        InlineKeyboardButton(text='🛒 Мои покупки', callback_data="my_orders")
-    )
+    # Каждая кнопка на отдельной строке во всю ширину
+    builder.row(InlineKeyboardButton(text='💳 Пополнить баланс', callback_data="top_up"))
+    builder.row(InlineKeyboardButton(text='🎁 Промокод', callback_data="promo"))
+    builder.row(InlineKeyboardButton(text='📜 Мои покупки', callback_data="my_orders"))
+    
     return builder.as_markup()
 
 def get_quantity_keyboard(quantity: int):
@@ -29,16 +26,15 @@ def get_quantity_keyboard(quantity: int):
     )
     return builder.as_markup()
 
-# Заглушки для совместимости
-def _generic_stub_keyboard(*args, **kwargs):
+# Остальные функции-заглушки, чтобы хендлеры не выдавали ImportError при запуске
+def categories_keyboard(categories=None):
     return get_market_keyboard()
 
-class _FallbackModule(object):
-    def __init__(self, original_module):
-        self.original_module = original_module
-    def __getattr__(self, name):
-        if hasattr(self.original_module, name):
-            return getattr(self.original_module, name)
-        return _generic_stub_keyboard
+def products_keyboard(products=None):
+    return get_market_keyboard()
 
-sys.modules[__name__] = _FallbackModule(sys.modules[__name__])
+def profile_keyboard():
+    return get_market_keyboard()
+
+def history_keyboard(purchases=None):
+    return get_market_keyboard()
