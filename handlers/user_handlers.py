@@ -29,8 +29,10 @@ from config import ADMIN_IDS
 
 router = Router()
 
-# ── ТГП ЭМОДЗИ ИЗ СТИКЕРПАКА (Translucent Pack) ───────────────────────────────
-E_CROWN   = "5276220667182736079" 
+# =====================================================================
+#  ОБНОВЛЕННЫЙ ТГП ПАК: TRANSLUCENT PACK BY @v7agency
+# =====================================================================
+E_CROWN   = "5276220667182736074" # 👑 Исправлен ID короны
 E_FOLDER  = "5278227821364275264" # 📁
 E_BOX     = "5278540791336165644" # 📦
 E_CHECK   = "5278411813468269386" # ✅
@@ -48,8 +50,11 @@ E_HAMMER  = "5276314275994954605" # 🔨
 E_MINUS   = "5244796895443838315" # ➖
 E_PLUS    = "5242329690135356589" # ➕
 E_SPIN    = "5278304890257436355" # 🎮
+E_NUM_1   = "5244961448525848230" # 1️⃣ Добавлен из твоего списка
+E_NUM_2   = "5242293676834579345" # 2️⃣ Добавлен из твоего списка
+E_NUM_3   = "5242652525647127686" # 3️⃣ Добавлен из твоего списка
 
-# ── ВСПУМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ БЕЗОПАСНОЙ ОТПРАВКИ ТГП-ЭМОДЗИ ────────────────
+# ── ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ БЕЗОПАСНОЙ ОТПРАВКИ ТГП-ЭМОДЗИ ────────────────
 async def safe_answer(message: Message, text_with_tg_emoji: str, fallback_text: str, **kwargs):
     """Пытается отправить текст с кастомными эмодзи, при ошибке отправляет обычный текст"""
     try:
@@ -517,7 +522,6 @@ async def spin_discount(message: Message, state: FSMContext):
             session.add(UserDiscount(user_id=user_id, percent=percent, expires_at=expires))
         await session.commit()
 
-    # Рандомайзер-эффект крутящихся скидок в чате
     frames_tg = [
         f'<tg-emoji id="{E_SPIN}">🎮</tg-emoji> [ 🔄 ВРАЩАЕМ БАРАБАН... ]',
         f'<tg-emoji id="{E_SPIN}">🎮</tg-emoji> [ 🎰 СКИДКА 1% ]',
@@ -535,7 +539,6 @@ async def spin_discount(message: Message, state: FSMContext):
         '🎮 [ 💎 СКИДКА 7% ]',
     ]
     
-    # Флаг, используем ли кастомные эмодзи для анимации (сбрасывается в False, если падает)
     use_tg_emoji = True
     try:
         spin_msg = await message.answer(f'<tg-emoji id="{E_SPIN}">🎮</tg-emoji> <b>Запуск рулетки скидок...</b>', parse_mode="HTML")
@@ -551,7 +554,7 @@ async def spin_discount(message: Message, state: FSMContext):
                     await spin_msg.edit_text(f"<b>{frame}</b>", parse_mode="HTML")
                     await asyncio.sleep(0.2)
                 except Exception:
-                    use_tg_emoji = False  # Если по ходу упало, переключаемся на резерв
+                    use_tg_emoji = False
                     break
         if not use_tg_emoji:
             random.shuffle(frames_fb)
@@ -562,7 +565,6 @@ async def spin_discount(message: Message, state: FSMContext):
                 except Exception:
                     pass
 
-    # Конечный результат рулетки
     res_tg = (
         f'<tg-emoji id="{E_STAR}">⭐️</tg-emoji> Тебе выпала скидка <b>{percent}%</b> на 24 часа!\n\n'
         f'<tg-emoji id="{E_CHECK}">✅</tg-emoji> Применяется автоматически при покупке.'
