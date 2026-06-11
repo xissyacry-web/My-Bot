@@ -8,17 +8,17 @@ def get_market_keyboard():
     # Вместо обычного смайлика вставляем тег tg-emoji с нужным ID
     builder.row(
         InlineKeyboardButton(
-            text='<tg-emoji id="5431448270311693444">💳</tg-emoji> Пополнить баланс',
+            text='<tg-emoji id="5276398496008663230">👝/tg-emoji> Пополнить баланс',
             callback_data="top_up"
         ),
         InlineKeyboardButton(
-            text='<tg-emoji id="5431448270311693111">🎁</tg-emoji> Промокод',
+            text='<tg-emoji id="5276422526350681413">🎁</tg-emoji> Промокод',
             callback_data="promo"
         )
     )
     builder.row(
         InlineKeyboardButton(
-            text='<tg-emoji id="5431448270311693222">📜</tg-emoji> Мои покупки',
+            text='<tg-emoji id="5278613311858959074">🛒</tg-emoji> Мои покупки',
             callback_data="my_orders"
         )
     )
