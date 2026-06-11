@@ -30,6 +30,11 @@ class AdminAddProduct(StatesGroup):
     content = State()
     file = State()
 
+class AdminEditDesc(StatesGroup):
+    category_id = State()
+    product_id = State()
+    new_desc = State()
+
 class AdminAddCategory(StatesGroup):
     name = State()
     parent_id = State()
@@ -80,8 +85,13 @@ class AdminRefillProduct(StatesGroup):
     product_id = State()
     content = State()
 
-class AdminReplaceSelectPurchase(StatesGroup):
-    purchase_id = State()
+class AdminBulkProduct(StatesGroup):
+    category_id = State()
+    product_id = State()
+    file = State()
 
 class AdminImport(StatesGroup):
     file = State()
+
+class AdminViewLogs(StatesGroup):
+    user_id = State()
