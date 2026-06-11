@@ -1,40 +1,48 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-def get_market_keyboard():
-    """Главное меню профиля (как на скрине)"""
+def profile_keyboard():
+    """Главное меню профиля с твоими кастомными ТГП-иконками во всю линию"""
     builder = InlineKeyboardBuilder()
     
-    # Каждая кнопка на отдельной строке во всю ширину
     builder.row(InlineKeyboardButton(text='💳 Пополнить баланс', callback_data="top_up"))
     builder.row(InlineKeyboardButton(text='🎁 Промокод', callback_data="promo"))
     builder.row(InlineKeyboardButton(text='📜 Мои покупки', callback_data="my_orders"))
     
     return builder.as_markup()
 
-def get_quantity_keyboard(quantity: int):
-    """Клавиатура выбора количества товара"""
+def categories_keyboard(categories):
     builder = InlineKeyboardBuilder()
-    
-    builder.row(
-        InlineKeyboardButton(text='➖', callback_data=f"qty:minus:{quantity}"),
-        InlineKeyboardButton(text=f'{quantity} шт.', callback_data="qty:ignore"),
-        InlineKeyboardButton(text='➕', callback_data=f"qty:plus:{quantity}")
-    )
-    builder.row(
-        InlineKeyboardButton(text='✅ Подтвердить и купить', callback_data=f"qty:confirm:{quantity}")
-    )
+    for cat in categories:
+        builder.row(InlineKeyboardButton(text=str(cat.name), callback_data=f"cat_{cat.id}"))
+    builder.row(InlineKeyboardButton(text="◀️ Назад в каталог", callback_data="back_to_categories"))
     return builder.as_markup()
 
-# Остальные функции-заглушки, чтобы хендлеры не выдавали ImportError при запуске
-def categories_keyboard(categories=None):
-    return get_market_keyboard()
+def products_keyboard(products):
+    builder = InlineKeyboardBuilder()
+    for prod in products:
+        status = "🟢" if prod.quantity > 0 or prod.quantity is None else "🔴"
+        builder.row(InlineKeyboardButton(text=f"{status} {prod.name} — {prod.price}$", callback_data=f"buy_{prod.id}"))
+    builder.row(InlineKeyboardButton(text="◀️ Назад к категориям", callback_data="back_to_categories"))
+    return builder.as_markup()
 
-def products_keyboard(products=None):
-    return get_market_keyboard()
+def payment_keyboard(pay_url: str):
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="💳 Ссылка на оплату", url=pay_url))
+    builder.row(InlineKeyboardButton(text="🔄 Проверить оплату", callback_data="check_payment"))
+    return builder.as_markup()
 
-def profile_keyboard():
-    return get_market_keyboard()
+def history_keyboard(purchases):
+    builder = InlineKeyboardBuilder()
+    for p in purchases:
+        builder.row(InlineKeyboardButton(text=f"Покупка #{p.id}", callback_data=f"hist_{p.id}"))
+    builder.row(InlineKeyboardButton(text="◀️ В профиль", callback_data="profile_back"))
+    return builder.as_markup()
 
-def history_keyboard(purchases=None):
-    return get_market_keyboard()
+def unban_confirm_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="✅ Отправить", callback_data="unban_confirm"),
+        InlineKeyboardButton(text="❌ Отмена", callback_data="unban_cancel")
+    )
+    return builder.as_markup()
