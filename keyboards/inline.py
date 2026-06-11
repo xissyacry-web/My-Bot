@@ -59,5 +59,10 @@ def get_quantity_keyboard(quantity: int):
     return builder.as_markup()
 
 
+def products_keyboard(*args, **kwargs):
+    """Временная заглушка для импорта products_keyboard, чтобы не падал деплой"""
+    return get_market_keyboard()
+
+
 # Создаем псевдоним (alias), чтобы старый импорт в хендлерах не ломался
 categories_keyboard = get_market_keyboard
