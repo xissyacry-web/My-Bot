@@ -285,11 +285,12 @@ async def profile(message: Message, state: FSMContext):
         f'<tg-emoji id="{E_USER}">👤</tg-emoji> <b>Профиль</b>\n\n'
         f"ID: <code>{user.user_id}</code>\n"
         f"Username: @{user.username or '—'}\n"
-        f'<tg-emoji id="{E_WALLET}">👝</tg-emoji> Баланс: <b>{user.balance:.2f}$</b>\n"
+        f'<tg-emoji id="{E_WALLET}">👝</tg-emoji> Баланс: <b>{user.balance:.2f}$</b>\n'  # <-- Вот тут исправил " на '
         f'<tg-emoji id="{E_BRIEF}">💼</tg-emoji> Покупок: {purchases_count}\n'
         f'<tg-emoji id="{E_CLOCK}">🕓</tg-emoji> Дней с нами: {days}'
         f"{disc_line}"
     )
+
     await message.answer(text, parse_mode="HTML", reply_markup=profile_keyboard())
 
 @router.callback_query(F.data == "profile_back")
