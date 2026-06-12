@@ -2,6 +2,12 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from config import pe, pe_coin, CRYPTO_ASSETS
 
+# ── УНИВЕРСАЛЬНАЯ КНОПКА НАЗАД ────────────────────────────────────────────────
+def back_btn():
+    b = InlineKeyboardBuilder()
+    b.button(text="◀️ Назад", callback_data="back_to_menu")
+    return b.as_markup()
+
 # ── КАТАЛОГ ───────────────────────────────────────────────────────────────────
 def categories_kb(cats):
     b = InlineKeyboardBuilder()
@@ -116,7 +122,6 @@ def unban_action_kb(req_id: int):
 # ── АДМИН ГЛАВНОЕ МЕНЮ ────────────────────────────────────────────────────────
 def admin_main_kb():
     b = InlineKeyboardBuilder()
-    # Раздел товары
     b.button(text="━━━ 📦 ТОВАРЫ ━━━",        callback_data="admin_noop")
     b.button(text="➕ Добавить товар",          callback_data="admin_add_product")
     b.button(text="✏️ Пополнить товар",         callback_data="admin_refill_product")
@@ -126,35 +131,28 @@ def admin_main_kb():
     b.button(text="📊 Массово изменить цены",    callback_data="admin_bulk_price")
     b.button(text="🗑 Удалить строки",           callback_data="admin_delete_lines")
     b.button(text="🗑 Удалить товар",            callback_data="admin_delete_product")
-    # Раздел категории
     b.button(text="━━━ 📁 КАТЕГОРИИ ━━━",       callback_data="admin_noop")
     b.button(text="➕ Добавить категорию",        callback_data="admin_add_category")
     b.button(text="🗑 Удалить категорию",        callback_data="admin_delete_category")
-    # Раздел пользователи
     b.button(text="━━━ 👥 ПОЛЬЗОВАТЕЛИ ━━━",    callback_data="admin_noop")
     b.button(text="🔍 Найти пользователя",       callback_data="user_search")
     b.button(text="💰 Изменить баланс",          callback_data="user_balance")
     b.button(text="🚫 Бан / Разбан",             callback_data="user_ban")
     b.button(text="⭐ Изменить кэшбек",          callback_data="user_cashback")
     b.button(text="🏆 Топ покупателей",          callback_data="admin_top_buyers")
-    # Раздел заявки
     b.button(text="━━━ 📋 ЗАЯВКИ ━━━",          callback_data="admin_noop")
     b.button(text="♻️ Замены",                   callback_data="admin_replaces")
     b.button(text="🔓 Разблокировки",            callback_data="admin_unbans")
-    # Раздел промокоды
     b.button(text="━━━ 🎁 ПРОМОКОДЫ ━━━",       callback_data="admin_noop")
     b.button(text="➕ Создать промокод",          callback_data="promo_add")
     b.button(text="🗑 Удалить промокод",         callback_data="promo_delete")
     b.button(text="📋 Список промокодов",        callback_data="promo_list")
-    # Раздел рассылка
     b.button(text="━━━ 📢 РАССЫЛКА ━━━",        callback_data="admin_noop")
     b.button(text="📨 Новая рассылка",           callback_data="admin_broadcast")
     b.button(text="📅 Запланированные",          callback_data="admin_scheduled")
-    # Раздел аналитика
     b.button(text="━━━ 📊 АНАЛИТИКА ━━━",       callback_data="admin_noop")
     b.button(text="📊 Статистика",               callback_data="admin_stats")
     b.button(text="📜 Логи покупок",             callback_data="admin_view_logs")
-    # Раздел база данных
     b.button(text="━━━ 🗄 БАЗА ДАННЫХ ━━━",     callback_data="admin_noop")
     b.button(text="📤 Экспорт БД",              callback_data="admin_export")
     b.button(text="📥 Импорт БД",               callback_data="admin_import")
