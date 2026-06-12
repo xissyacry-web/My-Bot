@@ -5,7 +5,7 @@ CRYPTO_BOT_TOKEN = os.environ.get("CRYPTO_BOT_TOKEN", "588982:AARxXJtGOMKkXibK6z
 ADMIN_IDS_STR    = os.environ.get("ADMIN_IDS",        "1073780833")
 ADMIN_IDS        = [int(x.strip()) for x in ADMIN_IDS_STR.split(",") if x.strip()]
 DATABASE_URL     = os.environ.get("DATABASE_URL",     "sqlite+aiosqlite:///./bot.db")
-BOT_USERNAME     = os.environ.get("BOT_USERNAME",     "XissyaLog_Bot")
+BOT_USERNAME     = os.environ.get("BOT_USERNAME",     "XissyaLogBot")
 LOG_CHAT_ID      = int(os.environ.get("LOG_CHAT_ID",  "-1003816125421"))
 VERSION          = "v4.0.0"
 
