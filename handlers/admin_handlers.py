@@ -32,13 +32,17 @@ def back_kb(cb="admin_back"):
 @router.message(F.text == "/admin")
 async def admin_panel(message: Message):
     if not is_admin(message.from_user.id): return
-    from keyboards.inline import admin_main_kb
-
+    
+    # 1. Исправляем импорт: меняем имя на то, что реально есть в inline.py
+    from keyboards.inline import admin_main_kb 
+    
     await message.answer(
         f"{pe('crown')} <b>Админ-панель</b> {VERSION}",
         parse_mode="HTML",
-        reply_markup=admin_main_keyboard()
+        # 2. Исправляем вызов функции: используем правильное имя
+        reply_markup=admin_main_kb() 
     )
+
 
 @router.callback_query(F.data == "admin_back")
 async def back(callback: CallbackQuery, state: FSMContext):
