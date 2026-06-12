@@ -1,18 +1,9 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from config import pe
 
 def main_menu():
-    """Главное reply-меню бота"""
-    builder = ReplyKeyboardBuilder()
-    
-    builder.row(
-        KeyboardButton(text="📋 Каталог"),
-        KeyboardButton(text="👤 Профиль")
-    )
-    builder.row(
-        KeyboardButton(text="♻️ Замена"),
-        KeyboardButton(text="🆘 Поддержка"),
-        KeyboardButton(text="🏷 Скидка")
-    )
-    
-    return builder.as_markup(resize_keyboard=True)
+    return ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text=f"{pe('folder')} Каталог"),   KeyboardButton(text=f"{pe('user')} Профиль")],
+        [KeyboardButton(text=f"{pe('info')} Поддержка"),   KeyboardButton(text=f"{pe('hammer')} Замена")],
+        [KeyboardButton(text=f"{pe('star')} Скидка")],
+    ], resize_keyboard=True)
