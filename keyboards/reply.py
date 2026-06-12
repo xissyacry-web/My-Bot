@@ -1,8 +1,5 @@
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+# Reply клавиатура убрана — бот использует inline меню
+from aiogram.types import ReplyKeyboardRemove
 
-def main_menu():
-    return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="📋 Каталог"),   KeyboardButton(text="👤 Профиль")],
-        [KeyboardButton(text="🆘 Поддержка"), KeyboardButton(text="♻️ Замена")],
-        [KeyboardButton(text="🏷 Скидка")],
-    ], resize_keyboard=True)
+def remove_keyboard():
+    return ReplyKeyboardRemove()
