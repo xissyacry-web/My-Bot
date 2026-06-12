@@ -1,6 +1,6 @@
 import os
 
-BOT_TOKEN        = os.environ.get("BOT_TOKEN",        "8763758254:AAG0cWTkg8unFvwBRJNkX790ow0tg9q7r_A")
+BOT_TOKEN        = os.environ.get("BOT_TOKEN",        "8763758254:AAG9LQKq6KUDnLLv6BFc0hDNA7e7eJN1hLA")
 CRYPTO_BOT_TOKEN = os.environ.get("CRYPTO_BOT_TOKEN", "588982:AARxXJtGOMKkXibK6z9yOogblUSEYerHJqD")
 ADMIN_IDS_STR    = os.environ.get("ADMIN_IDS",        "1073780833")
 ADMIN_IDS        = [int(x.strip()) for x in ADMIN_IDS_STR.split(",") if x.strip()]
