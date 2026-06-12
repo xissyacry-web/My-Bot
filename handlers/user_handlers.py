@@ -526,10 +526,9 @@ async def show_reviews(callback: CallbackQuery):
     await callback.answer()
 
 # ── DISCOUNT ──────────────────────────────────────────────────────────────────
-@router.message(F.text.contains("Скидка")
+@router.message(F.text == "🏷 Скидка")
 async def spin_discount(message: Message, state: FSMContext):
     await state.clear()
-    import asyncio
     user_id = message.from_user.id
     async with AsyncSessionLocal() as s:
         existing = await get_active_discount(s, user_id)
@@ -539,20 +538,7 @@ async def spin_discount(message: Message, state: FSMContext):
                 f"{pe('star')} Скидка <b>{existing.percent}%</b> активна ещё {h}ч.",
                 parse_mode="HTML"
             ); return
-
-    percent = random.randint(1, 10)
-
-    # Эффект прокрутки
-    msg = await message.answer("🎰 | ❓ ❓ ❓ |")
-    await asyncio.sleep(0.6)
-    await msg.edit_text("🎰 | 1% ❓ ❓ |")
-    await asyncio.sleep(0.6)
-    await msg.edit_text("🎰 | 1% 5% ❓ |")
-    await asyncio.sleep(0.8)
-    await msg.edit_text(f"🎰 | 1% 5% {percent}% |")
-    await asyncio.sleep(0.8)
-
-    async with AsyncSessionLocal() as s:
+        percent = random.randint(1, 10)
         expires = datetime.utcnow() + timedelta(hours=24)
         old = (await s.execute(select(UserDiscount).where(UserDiscount.user_id == user_id))).scalar_one_or_none()
         if old:
@@ -560,8 +546,7 @@ async def spin_discount(message: Message, state: FSMContext):
         else:
             s.add(UserDiscount(user_id=user_id, percent=percent, expires_at=expires))
         await s.commit()
-
-    await msg.edit_text(
+    await message.answer(
         f"{pe('star')} Тебе выпала скидка <b>{percent}%</b> на 24 часа!\n"
         f"{pe('check')} Применяется автоматически при покупке.",
         parse_mode="HTML"
