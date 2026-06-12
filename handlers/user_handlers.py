@@ -8,11 +8,12 @@ from sqlalchemy import select
 
 from database.database import AsyncSessionLocal
 from database.models import User, Invoice, Promocode, Purchase, Product, UnbanRequest, UserDiscount, StockNotify, Review
-from keyboards.reply import main_menu
+from keyboards.reply import remove_keyboard
 from keyboards.inline import (
     categories_kb, products_kb, product_actions_kb, profile_kb,
     payment_kb, history_kb, purchase_detail_kb, review_rating_kb,
-    unban_confirm_kb, amount_kb, crypto_assets_kb, back_btn
+    unban_confirm_kb, amount_kb, crypto_assets_kb, main_menu_inline_kb,
+    back_to_main_kb, replace_action_kb, unban_action_kb
 )
 from services.user_service import get_user, create_user
 from services.product_service import get_categories, get_products_by_category, buy_product
@@ -23,29 +24,13 @@ from utils.states import (
     ReplenishBalance, PromocodeInput, BuyProduct,
     UnbanProcess, ReplaceRequestStates, ReviewStates
 )
-from config import ADMIN_IDS, pe, pe_coin, pe_num, REF_BONUS, BOT_USERNAME
+from config import ADMIN_IDS, pe, pe_coin, pe_num, REF_BONUS
+
+BOT_USERNAME = "XissyaLogBot"
 
 router = Router()
 
-# ОСТАЛЬНОЙ ВАШ КОД ОСТАЕТСЯ БЕЗ ИЗМЕНЕНИЙ...
-
-
 # ── helpers ───────────────────────────────────────────────────────────────────
-async def ensure_user(user_id, username=None, ref_code=None):
-    async with AsyncSessionLocal() as s:
-        user = await get_user(s, user_id)
-        if not user:
-            ref_by = None
-            if ref_code:
-                referrer = (await s.execute(select(User).where(User.ref_code == ref_code))).scalar_one_or_none()
-                if referrer and referrer.user_id != user_id:
-                    ref_by = referrer.user_id
-                    referrer.balance += REF_BONUS
-                    referrer.ref_count += 1
-            user = await create_user(s, user_id, username, referred_by=ref_by)
-            await log_register(None, user_id, username, ref_by)  # bot=None handled
-        return user
-
 async def get_active_discount(session, user_id):
     return (await session.execute(
         select(UserDiscount).where(
@@ -54,21 +39,38 @@ async def get_active_discount(session, user_id):
         )
     )).scalar_one_or_none()
 
+async def send_main_menu(target, text: str):
+    """Отправляет сообщение с inline главным меню, убирает reply клавиатуру"""
+    if isinstance(target, Message):
+        await target.answer(text, parse_mode="HTML",
+                            reply_markup=remove_keyboard())
+        await target.answer(
+            f"{pe('crown')} <b>Главное меню</b>\n\nВыбери раздел:",
+            parse_mode="HTML", reply_markup=main_menu_inline_kb()
+        )
+    elif isinstance(target, CallbackQuery):
+        await target.message.edit_text(
+            f"{pe('crown')} <b>Главное меню</b>\n\nВыбери раздел:",
+            parse_mode="HTML", reply_markup=main_menu_inline_kb()
+        )
+
 # ── START ─────────────────────────────────────────────────────────────────────
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     args = message.text.split()
-    ref_code = args[1] if len(args) > 1 and args[1].startswith("ref_") else None
-    if ref_code:
-        ref_code = ref_code[4:]
+    ref_code = None
+    if len(args) > 1 and args[1].startswith("ref_"):
+        ref_code = args[1][4:]
 
     async with AsyncSessionLocal() as s:
         user = await get_user(s, message.from_user.id)
         if not user:
             ref_by = None
             if ref_code:
-                referrer = (await s.execute(select(User).where(User.ref_code == ref_code))).scalar_one_or_none()
+                referrer = (await s.execute(
+                    select(User).where(User.ref_code == ref_code)
+                )).scalar_one_or_none()
                 if referrer and referrer.user_id != message.from_user.id:
                     ref_by = referrer.user_id
                     referrer.balance += REF_BONUS
@@ -86,21 +88,43 @@ async def cmd_start(message: Message, state: FSMContext):
             await create_user(s, message.from_user.id, message.from_user.username, referred_by=ref_by)
             await log_register(message.bot, message.from_user.id, message.from_user.username, ref_by)
 
+    # Убираем reply клавиатуру и показываем inline меню
     await message.answer(
-        f"{pe('crown')} <b>Добро пожаловать!</b>\n\nИспользуй меню ниже ↓",
-        parse_mode="HTML", reply_markup=main_menu()
+        f"{pe('crown')} <b>Добро пожаловать!</b>",
+        parse_mode="HTML",
+        reply_markup=remove_keyboard()
+    )
+    await message.answer(
+        f"{pe('crown')} <b>Главное меню</b>\n\nВыбери раздел:",
+        parse_mode="HTML",
+        reply_markup=main_menu_inline_kb()
     )
 
-# ── CATALOG ───────────────────────────────────────────────────────────────────
-@router.message(F.text == "📋 Каталог")
-async def show_catalog(message: Message, state: FSMContext):
+@router.callback_query(F.data == "back_to_main")
+async def back_to_main(callback: CallbackQuery, state: FSMContext):
     await state.clear()
+    await callback.message.edit_text(
+        f"{pe('crown')} <b>Главное меню</b>\n\nВыбери раздел:",
+        parse_mode="HTML", reply_markup=main_menu_inline_kb()
+    )
+    await callback.answer()
+
+# ── КАТАЛОГ ───────────────────────────────────────────────────────────────────
+@router.callback_query(F.data == "main_catalog")
+async def main_catalog(callback: CallbackQuery):
     async with AsyncSessionLocal() as s:
         cats = await get_categories(s, parent_id=None)
     if cats:
-        await message.answer(f"{pe('folder')} <b>Каталог</b>", parse_mode="HTML", reply_markup=categories_kb(cats))
+        await callback.message.edit_text(
+            f"{pe('folder')} <b>Каталог</b>",
+            parse_mode="HTML", reply_markup=categories_kb(cats)
+        )
     else:
-        await message.answer(f"{pe('box')} Каталог пуст", parse_mode="HTML")
+        await callback.message.edit_text(
+            f"{pe('box')} Каталог пуст",
+            parse_mode="HTML", reply_markup=back_to_main_kb()
+        )
+    await callback.answer()
 
 @router.callback_query(F.data.startswith("cat_"))
 async def category_cb(callback: CallbackQuery):
@@ -113,7 +137,8 @@ async def category_cb(callback: CallbackQuery):
         subcats = await get_categories(s, parent_id=cat_id)
         if subcats:
             await callback.message.edit_text(
-                f"{pe('folder')} <b>{cat.name}</b>", parse_mode="HTML", reply_markup=categories_kb(subcats)
+                f"{pe('folder')} <b>{cat.name}</b>",
+                parse_mode="HTML", reply_markup=categories_kb(subcats)
             )
         else:
             products = await get_products_by_category(s, cat_id)
@@ -130,10 +155,16 @@ async def category_cb(callback: CallbackQuery):
 async def back_cats(callback: CallbackQuery):
     async with AsyncSessionLocal() as s:
         cats = await get_categories(s, parent_id=None)
-    await callback.message.edit_text(
-        f"{pe('folder')} <b>Каталог</b>", parse_mode="HTML",
-        reply_markup=categories_kb(cats) if cats else None
-    )
+    if cats:
+        await callback.message.edit_text(
+            f"{pe('folder')} <b>Каталог</b>",
+            parse_mode="HTML", reply_markup=categories_kb(cats)
+        )
+    else:
+        await callback.message.edit_text(
+            f"{pe('crown')} <b>Главное меню</b>",
+            parse_mode="HTML", reply_markup=main_menu_inline_kb()
+        )
     await callback.answer()
 
 @router.callback_query(F.data.startswith("buy_"))
@@ -146,14 +177,12 @@ async def show_product(callback: CallbackQuery, state: FSMContext):
         disc = await get_active_discount(s, callback.from_user.id)
         qty = "∞" if product.quantity == 0 else str(product.quantity)
         avg = f"⭐ {product.rating_sum/product.rating_count:.1f} ({product.rating_count})" if product.rating_count else "нет отзывов"
-
         if disc:
             final = round(product.price * (1 - disc.percent / 100), 2)
             price_line = f"💰 <s>{product.price}$</s> → <b>{final}$</b> (-{disc.percent}%)"
         else:
             price_line = f"💰 <b>{product.price}$</b>"
-
-        out_of_stock = not product.is_available or (product.quantity == 0 and not product.content)
+        out_of_stock = not product.is_available
         text = (
             f"{pe('box')} <b>{product.name}</b>\n\n"
             f"{product.description or 'Описание отсутствует'}\n\n"
@@ -178,16 +207,13 @@ async def ask_amount(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-@router.callback_query(F.data.startswith("amount_"))
-async def quick_amount(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data.startswith("quickbuy_"))
+async def quick_buy(callback: CallbackQuery, state: FSMContext):
     _, product_id, n = callback.data.split("_")
-    await state.update_data(product_id=int(product_id))
-    await state.set_state(BuyProduct.amount)
-    msg = type('M', (), {'text': n, 'from_user': callback.from_user, 'bot': callback.bot,
-                          'answer': callback.message.answer})()
-    await do_buy(callback.from_user.id, callback.from_user.username, int(product_id), int(n), callback.message, callback.bot)
-    await callback.answer()
     await state.clear()
+    await do_buy(callback.from_user.id, callback.from_user.username,
+                 int(product_id), int(n), callback.message, callback.bot)
+    await callback.answer()
 
 @router.message(BuyProduct.amount)
 async def buy_amount_msg(message: Message, state: FSMContext):
@@ -197,7 +223,8 @@ async def buy_amount_msg(message: Message, state: FSMContext):
     except Exception:
         await message.answer("Введи целое положительное число."); return
     data = await state.get_data()
-    await do_buy(message.from_user.id, message.from_user.username, data['product_id'], amount, message, message.bot)
+    await do_buy(message.from_user.id, message.from_user.username,
+                 data['product_id'], amount, message, message.bot)
     await state.clear()
 
 async def do_buy(user_id, username, product_id, amount, msg_obj, bot):
@@ -205,7 +232,6 @@ async def do_buy(user_id, username, product_id, amount, msg_obj, bot):
         disc = await get_active_discount(s, user_id)
         discount_pct = disc.percent if disc else 0
         result = await buy_product(s, user_id, product_id, amount, discount_pct)
-
         if result["success"]:
             cb_line = f"\n{pe('star')} Кэшбек: +{result['cashback']:.4f}$" if result['cashback'] else ""
             text = (
@@ -225,16 +251,10 @@ async def do_buy(user_id, username, product_id, amount, msg_obj, bot):
             await log_purchase(bot, user_id, username, result['product_name'],
                                amount, result['total_price'], result['cashback'],
                                result.get('selected_lines', []))
-            # уведомить подписчиков если товар закончился
-            if result['quantity_left'] == 0:
-                await notify_stock_empty(bot, product_id)
         else:
             await msg_obj.answer(f"{pe('warning')} {result['error']}", parse_mode="HTML")
 
-async def notify_stock_empty(bot, product_id):
-    pass  # срабатывает при исчерпании — ничего не делаем
-
-# ── STOCK NOTIFY ──────────────────────────────────────────────────────────────
+# ── УВЕДОМЛЕНИЕ О НАЛИЧИИ ─────────────────────────────────────────────────────
 @router.callback_query(F.data.startswith("notify_"))
 async def subscribe_stock(callback: CallbackQuery):
     product_id = int(callback.data.split("_")[1])
@@ -247,20 +267,19 @@ async def subscribe_stock(callback: CallbackQuery):
             await callback.answer("Вы уже подписаны!", show_alert=True); return
         s.add(StockNotify(user_id=user_id, product_id=product_id))
         await s.commit()
-    await callback.answer(f"{pe('bell')} Уведомим когда появится!", show_alert=True)
+    await callback.answer(f"Уведомим когда появится!", show_alert=True)
 
-# ── PROFILE ───────────────────────────────────────────────────────────────────
-@router.message(F.text == "👤 Профиль")
-async def profile(message: Message, state: FSMContext):
-    await state.clear()
+# ── ПРОФИЛЬ ───────────────────────────────────────────────────────────────────
+@router.callback_query(F.data == "main_profile")
+async def profile(callback: CallbackQuery):
     async with AsyncSessionLocal() as s:
-        user = await get_user(s, message.from_user.id)
+        user = await get_user(s, callback.from_user.id)
         if not user:
-            user = await create_user(s, message.from_user.id, message.from_user.username)
-        disc = await get_active_discount(s, message.from_user.id)
-        buys_count = (await s.execute(
-            select(Purchase).where(Purchase.user_id == message.from_user.id)
-        )).scalars().all()
+            user = await create_user(s, callback.from_user.id, callback.from_user.username)
+        disc = await get_active_discount(s, callback.from_user.id)
+        buys_count = len((await s.execute(
+            select(Purchase).where(Purchase.user_id == callback.from_user.id)
+        )).scalars().all())
 
     days = (datetime.utcnow() - user.registered_at).days
     disc_line = ""
@@ -270,24 +289,24 @@ async def profile(message: Message, state: FSMContext):
 
     text = (
         f"{pe('user')} <b>Профиль</b>\n\n"
-        f"ID: <code>{user.user_id}</code>\n"
-        f"Username: @{user.username or '—'}\n"
+        f"{pe('info')} ID: <code>{user.user_id}</code>\n"
         f"{pe('wallet')} Баланс: <b>{user.balance:.2f}$</b>\n"
-        f"{pe('briefcase')} Покупок: {len(buys_count)}\n"
+        f"{pe('briefcase')} Покупок: {buys_count}\n"
         f"{pe('chart')} Потрачено: {user.total_spent:.2f}$\n"
         f"{pe('star2')} Кэшбек: {user.cashback_pct}%\n"
         f"{pe('link')} Рефералов: {user.ref_count}\n"
         f"{pe('clock')} Дней: {days}"
         f"{disc_line}"
     )
-    await message.answer(text, parse_mode="HTML", reply_markup=profile_kb())
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=profile_kb())
+    await callback.answer()
 
 @router.callback_query(F.data == "profile_back")
 async def profile_back(callback: CallbackQuery):
     await callback.message.edit_reply_markup(reply_markup=profile_kb())
     await callback.answer()
 
-# ── REFERRAL ──────────────────────────────────────────────────────────────────
+# ── РЕФЕРАЛЬНАЯ ССЫЛКА ────────────────────────────────────────────────────────
 @router.callback_query(F.data == "profile_ref")
 async def ref_link(callback: CallbackQuery):
     async with AsyncSessionLocal() as s:
@@ -299,10 +318,14 @@ async def ref_link(callback: CallbackQuery):
         f"За каждого приглашённого — бонус на баланс!\n"
         f"{pe('users')} Приглашено: {user.ref_count}"
     )
-    await callback.message.answer(text, parse_mode="HTML")
+    b = InlineKeyboardBuilder()
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    b = InlineKeyboardBuilder()
+    b.button(text=f"{pe('down')} Назад", callback_data="main_profile")
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=b.as_markup())
     await callback.answer()
 
-# ── TOPUP ─────────────────────────────────────────────────────────────────────
+# ── ПОПОЛНЕНИЕ ────────────────────────────────────────────────────────────────
 @router.callback_query(F.data == "profile_topup")
 async def topup_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
@@ -323,8 +346,9 @@ async def topup_asset(callback: CallbackQuery, state: FSMContext):
     asset = callback.data.split("_")[1]
     await state.update_data(asset=asset)
     await state.set_state(ReplenishBalance.amount)
+    coin = pe_coin(asset)
     await callback.message.edit_text(
-        f"{pe('wallet')} Валюта: <b>{asset}</b>\n\nВведи сумму в $:",
+        f"{coin} Валюта: <b>{asset}</b>\n\nВведи сумму в $:",
         parse_mode="HTML"
     )
     await callback.answer()
@@ -336,7 +360,6 @@ async def topup_amount(message: Message, state: FSMContext):
         if amount <= 0: raise ValueError
     except Exception:
         await message.answer("Введи положительное число."); return
-
     data = await state.get_data()
     asset = data.get('asset', 'USDT')
     try:
@@ -344,13 +367,12 @@ async def topup_amount(message: Message, state: FSMContext):
     except Exception as e:
         await message.answer(f"{pe('warning')} {e}", parse_mode="HTML")
         await state.clear(); return
-
     async with AsyncSessionLocal() as s:
         s.add(Invoice(user_id=message.from_user.id, invoice_id=inv['invoice_id'], amount=amount, asset=asset))
         await s.commit()
-
+    coin = pe_coin(asset)
     await message.answer(
-        f"{pe('wallet')} Счёт на <b>{amount}$ ({asset})</b>\n\nОплати и нажми «Проверить».",
+        f"{coin} Счёт на <b>{amount}$ ({asset})</b>\n\nОплати и нажми «Проверить».",
         parse_mode="HTML", reply_markup=payment_kb(inv['pay_url'])
     )
     await state.clear()
@@ -371,8 +393,9 @@ async def check_payment(callback: CallbackQuery):
             user = await s.get(User, user_id)
             user.balance += inv.amount
             await s.commit()
+            coin = pe_coin(inv.asset)
             await callback.message.answer(
-                f"{pe('check')} Зачислено <b>{inv.amount:.2f}$</b> {pe_coin(inv.asset)} <b>{inv.asset}</b>",
+                f"{pe('check')} Зачислено <b>{inv.amount:.2f}$</b> {coin} <b>{inv.asset}</b>",
                 parse_mode="HTML"
             )
             await log_refill(callback.bot, user_id, callback.from_user.username, inv.amount, inv.asset)
@@ -384,7 +407,7 @@ async def check_payment(callback: CallbackQuery):
             await callback.answer("Оплата не поступила.", show_alert=True)
     await callback.answer()
 
-# ── PROMO ─────────────────────────────────────────────────────────────────────
+# ── ПРОМОКОД ─────────────────────────────────────────────────────────────────
 @router.callback_query(F.data == "profile_promo")
 async def promo_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(f"{pe('gift')} Введи промокод:", parse_mode="HTML")
@@ -413,11 +436,14 @@ async def promo_apply(message: Message, state: FSMContext):
             promo.used_count += 1
             user.used_promocodes = ','.join(used + [code])
             await s.commit()
-            await message.answer(f"{pe('gift')} <b>+{promo.bonus_amount:.2f}$</b> на баланс!", parse_mode="HTML")
+            await message.answer(
+                f"{pe('gift')} <b>+{promo.bonus_amount:.2f}$</b> на баланс!",
+                parse_mode="HTML"
+            )
             await log_promo(message.bot, message.from_user.id, message.from_user.username, code, promo.bonus_amount)
     await state.clear()
 
-# ── HISTORY ───────────────────────────────────────────────────────────────────
+# ── ИСТОРИЯ ПОКУПОК ───────────────────────────────────────────────────────────
 @router.callback_query(F.data == "profile_history")
 async def history(callback: CallbackQuery):
     async with AsyncSessionLocal() as s:
@@ -428,8 +454,8 @@ async def history(callback: CallbackQuery):
     if not purchases:
         await callback.answer("Покупок нет.", show_alert=True); return
     await callback.message.edit_text(
-        f"{pe('books')} <b>Покупки</b>", parse_mode="HTML",
-        reply_markup=history_kb(purchases)
+        f"{pe('books')} <b>История покупок</b>",
+        parse_mode="HTML", reply_markup=history_kb(purchases)
     )
     await callback.answer()
 
@@ -441,27 +467,22 @@ async def purchase_detail(callback: CallbackQuery):
         if not p: await callback.answer("Не найдено", show_alert=True); return
         product = await s.get(Product, p.product_id)
         pname = product.name if product else "удалён"
-        # проверяем оставлял ли уже отзыв
         existing_review = (await s.execute(
             select(Review).where(Review.purchase_id == pid)
         )).scalar_one_or_none()
         can_review = not existing_review
-
     cb_line = f"\n{pe('star')} Кэшбек: +{p.cashback:.4f}$" if p.cashback else ""
     text = (
         f"{pe('box')} <b>{pname}</b>\n"
         f"Кол-во: {p.amount} шт.\n"
-        f"{pe('wallet')} {p.price:.2f}$"
-        f"{cb_line}\n"
+        f"{pe('wallet')} {p.price:.2f}${cb_line}\n"
         f"{pe('clock')} {p.purchased_at.strftime('%d.%m.%Y %H:%M')}"
     )
-    await callback.message.edit_text(
-        text, parse_mode="HTML",
-        reply_markup=purchase_detail_kb(pid, can_review)
-    )
+    await callback.message.edit_text(text, parse_mode="HTML",
+                                     reply_markup=purchase_detail_kb(pid, can_review))
     await callback.answer()
 
-# ── REVIEWS ───────────────────────────────────────────────────────────────────
+# ── ОТЗЫВЫ ────────────────────────────────────────────────────────────────────
 @router.callback_query(F.data.startswith("leave_review_"))
 async def leave_review_start(callback: CallbackQuery, state: FSMContext):
     purchase_id = int(callback.data.split("_")[2])
@@ -474,7 +495,7 @@ async def leave_review_start(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @router.callback_query(ReviewStates.rating, F.data.startswith("rate_"))
-async def review_rating(callback: CallbackQuery, state: FSMContext):
+async def review_rating_cb(callback: CallbackQuery, state: FSMContext):
     _, purchase_id, rating = callback.data.split("_")
     await state.update_data(rating=int(rating))
     await state.set_state(ReviewStates.text)
@@ -490,16 +511,8 @@ async def review_text(message: Message, state: FSMContext):
         if not p:
             await message.answer("Покупка не найдена."); await state.clear(); return
         product = await s.get(Product, p.product_id)
-        # сохраняем отзыв
-        review = Review(
-            user_id=message.from_user.id,
-            product_id=p.product_id,
-            purchase_id=p.id,
-            rating=data['rating'],
-            text=text_review
-        )
-        s.add(review)
-        # обновляем рейтинг продукта
+        s.add(Review(user_id=message.from_user.id, product_id=p.product_id,
+                     purchase_id=p.id, rating=data['rating'], text=text_review))
         product.rating_sum += data['rating']
         product.rating_count += 1
         await s.commit()
@@ -528,58 +541,81 @@ async def show_reviews(callback: CallbackQuery):
     await callback.message.answer("\n\n".join(lines), parse_mode="HTML")
     await callback.answer()
 
-# ── DISCOUNT ──────────────────────────────────────────────────────────────────
-@router.message(F.text == "🏷 Скидка")
-async def spin_discount(message: Message, state: FSMContext):
-    await state.clear()
-    user_id = message.from_user.id
+# ── СКИДКА ────────────────────────────────────────────────────────────────────
+@router.callback_query(F.data == "main_discount")
+async def spin_discount(callback: CallbackQuery):
+    import asyncio
+    user_id = callback.from_user.id
     async with AsyncSessionLocal() as s:
         existing = await get_active_discount(s, user_id)
         if existing:
             h = int((existing.expires_at - datetime.utcnow()).total_seconds() // 3600)
-            await message.answer(
+            await callback.message.answer(
                 f"{pe('star')} Скидка <b>{existing.percent}%</b> активна ещё {h}ч.",
                 parse_mode="HTML"
-            ); return
-        percent = random.randint(1, 10)
+            )
+            await callback.answer(); return
+
+    percent = random.randint(1, 10)
+
+    msg = await callback.message.answer("🎰 | ❓ ❓ ❓ |")
+    await asyncio.sleep(0.6)
+    await msg.edit_text("🎰 | 1% ❓ ❓ |")
+    await asyncio.sleep(0.6)
+    await msg.edit_text("🎰 | 1% 5% ❓ |")
+    await asyncio.sleep(0.8)
+    await msg.edit_text(f"🎰 | 1% 5% {percent}% |")
+    await asyncio.sleep(0.8)
+
+    async with AsyncSessionLocal() as s:
         expires = datetime.utcnow() + timedelta(hours=24)
-        old = (await s.execute(select(UserDiscount).where(UserDiscount.user_id == user_id))).scalar_one_or_none()
+        old = (await s.execute(
+            select(UserDiscount).where(UserDiscount.user_id == user_id)
+        )).scalar_one_or_none()
         if old:
             old.percent = percent; old.expires_at = expires; old.created_at = datetime.utcnow()
         else:
             s.add(UserDiscount(user_id=user_id, percent=percent, expires_at=expires))
         await s.commit()
-    await message.answer(
+
+    await msg.edit_text(
         f"{pe('star')} Тебе выпала скидка <b>{percent}%</b> на 24 часа!\n"
         f"{pe('check')} Применяется автоматически при покупке.",
         parse_mode="HTML"
     )
     from services.log_service import log_discount
-    await log_discount(message.bot, user_id, message.from_user.username, percent)
+    await log_discount(callback.bot, user_id, callback.from_user.username, percent)
+    await callback.answer()
 
-# ── SUPPORT ───────────────────────────────────────────────────────────────────
-@router.message(F.text == "🆘 Поддержка")
-async def support(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer(f"{pe('info')} Поддержка: @XissyaSup", parse_mode="HTML")
+# ── ПОДДЕРЖКА ─────────────────────────────────────────────────────────────────
+@router.callback_query(F.data == "main_support")
+async def support(callback: CallbackQuery):
+    await callback.message.answer(
+        f"{pe('info')} Поддержка: @XissyaSup",
+        parse_mode="HTML", reply_markup=back_to_main_kb()
+    )
+    await callback.answer()
 
-# ── REPLACE ───────────────────────────────────────────────────────────────────
-@router.message(F.text == "♻️ Замена")
-async def replace_start(message: Message, state: FSMContext):
-    await state.clear()
+# ── ЗАМЕНА ────────────────────────────────────────────────────────────────────
+@router.callback_query(F.data == "main_replace")
+async def replace_start_cb(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as s:
         exists = (await s.execute(
-            select(Purchase).where(Purchase.user_id == message.from_user.id, Purchase.status == 'completed')
+            select(Purchase).where(Purchase.user_id == callback.from_user.id,
+                                   Purchase.status == 'completed')
         )).first()
     if not exists:
-        await message.answer(f"{pe('warning')} Нет завершённых покупок.", parse_mode="HTML"); return
-    await message.answer(f"{pe('hammer')} Укажи номер лога и время покупки:", parse_mode="HTML")
+        await callback.answer("Нет завершённых покупок.", show_alert=True); return
+    await callback.message.answer(f"{pe('hammer')} Укажи номер лога и время покупки:",
+                                  parse_mode="HTML")
     await state.set_state(ReplaceRequestStates.log_time)
+    await callback.answer()
 
 @router.message(ReplaceRequestStates.log_time)
 async def replace_log(message: Message, state: FSMContext):
     await state.update_data(log_info=message.text, photos=[])
-    await message.answer("Отправь фото (до 5 шт.), затем напиши <b>готово</b> или «—».", parse_mode="HTML")
+    await message.answer("Отправь фото (до 5 шт.), затем напиши <b>готово</b> или «—».",
+                         parse_mode="HTML")
     await state.set_state(ReplaceRequestStates.photos)
 
 @router.message(ReplaceRequestStates.photos, F.photo)
@@ -594,9 +630,9 @@ async def replace_photo(message: Message, state: FSMContext):
 
 @router.message(ReplaceRequestStates.photos, F.text)
 async def replace_photos_done(message: Message, state: FSMContext):
-    t = message.text.strip().lower()
-    if t in ("готово", "—", "-"):
-        await message.answer("Опиши жалобу:"); await state.set_state(ReplaceRequestStates.complaint)
+    if message.text.strip().lower() in ("готово", "—", "-"):
+        await message.answer("Опиши жалобу:")
+        await state.set_state(ReplaceRequestStates.complaint)
     else:
         await message.answer("Отправь фото или напиши <b>готово</b>.", parse_mode="HTML")
 
@@ -605,15 +641,17 @@ async def replace_complaint(message: Message, state: FSMContext):
     data = await state.get_data()
     async with AsyncSessionLocal() as s:
         try:
-            req = await create_replace_request(s, message.from_user.id, data['log_info'], data.get('photos', []), message.text)
+            req = await create_replace_request(s, message.from_user.id, data['log_info'],
+                                               data.get('photos', []), message.text)
         except ValueError as e:
-            await message.answer(f"{pe('warning')} {e}", parse_mode="HTML"); await state.clear(); return
-        from keyboards.inline import replace_action_kb
+            await message.answer(f"{pe('warning')} {e}", parse_mode="HTML")
+            await state.clear(); return
         for admin_id in ADMIN_IDS:
             try:
                 photos = data.get('photos', [])
                 if photos:
-                    await message.bot.send_media_group(admin_id, [InputMediaPhoto(media=p) for p in photos])
+                    await message.bot.send_media_group(admin_id,
+                        [InputMediaPhoto(media=p) for p in photos])
                 await message.bot.send_message(
                     admin_id,
                     f"{pe('hammer')} <b>Замена #{req.id}</b>\n"
@@ -626,7 +664,7 @@ async def replace_complaint(message: Message, state: FSMContext):
     await message.answer(f"{pe('check')} Заявка отправлена.", parse_mode="HTML")
     await state.clear()
 
-# ── UNBAN ─────────────────────────────────────────────────────────────────────
+# ── РАЗБАН ────────────────────────────────────────────────────────────────────
 @router.callback_query(F.data == "unban_request")
 async def unban_start(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as s:
@@ -649,7 +687,8 @@ async def unban_photo(message: Message, state: FSMContext):
 @router.message(UnbanProcess.waiting_photos, F.text)
 async def unban_photo_text(message: Message, state: FSMContext):
     if message.text.strip().lower() in ("готово", "—", "-"):
-        await message.answer("Опиши причину:"); await state.set_state(UnbanProcess.waiting_description)
+        await message.answer("Опиши причину:")
+        await state.set_state(UnbanProcess.waiting_description)
     else:
         await message.answer("Отправь фото или напиши <b>готово</b>.", parse_mode="HTML")
 
@@ -664,18 +703,22 @@ async def unban_confirm_cb(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     user_id = callback.from_user.id
     async with AsyncSessionLocal() as s:
-        req = UnbanRequest(user_id=user_id, photos=','.join(data.get('photos', [])) or None, description=data.get('description', '-'))
+        from database.models import UnbanRequest
+        req = UnbanRequest(user_id=user_id,
+                           photos=','.join(data.get('photos', [])) or None,
+                           description=data.get('description', '-'))
         s.add(req); await s.commit()
-        from keyboards.inline import unban_action_kb
         for admin_id in ADMIN_IDS:
             try:
                 photos = data.get('photos', [])
                 if photos:
-                    await callback.bot.send_media_group(admin_id, [InputMediaPhoto(media=p) for p in photos])
+                    await callback.bot.send_media_group(admin_id,
+                        [InputMediaPhoto(media=p) for p in photos])
                 await callback.bot.send_message(
                     admin_id,
                     f"{pe('unlock')} <b>Разблокировка #{req.id}</b>\n"
-                    f"@{callback.from_user.username} (<code>{user_id}</code>)\n{data.get('description', '-')}",
+                    f"@{callback.from_user.username} (<code>{user_id}</code>)\n"
+                    f"{data.get('description', '-')}",
                     parse_mode="HTML", reply_markup=unban_action_kb(req.id)
                 )
             except Exception: pass
