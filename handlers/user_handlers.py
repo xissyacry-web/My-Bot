@@ -27,6 +27,9 @@ from config import ADMIN_IDS, pe, pe_coin, pe_num, REF_BONUS, BOT_USERNAME
 
 router = Router()
 
+# ОСТАЛЬНОЙ ВАШ КОД ОСТАЕТСЯ БЕЗ ИЗМЕНЕНИЙ...
+
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 async def ensure_user(user_id, username=None, ref_code=None):
     async with AsyncSessionLocal() as s:
