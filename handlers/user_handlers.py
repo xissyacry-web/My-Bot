@@ -545,47 +545,65 @@ async def show_reviews(callback: CallbackQuery):
 @router.callback_query(F.data == "main_discount")
 async def spin_discount(callback: CallbackQuery):
     import asyncio
+    import random
     user_id = callback.from_user.id
+    
     async with AsyncSessionLocal() as s:
         existing = await get_active_discount(s, user_id)
         if existing:
+            # Используем timezone-aware datetime, если ваш проект этого требует
             h = int((existing.expires_at - datetime.utcnow()).total_seconds() // 3600)
             await callback.message.answer(
                 f"{pe('star')} Скидка <b>{existing.percent}%</b> активна ещё {h}ч.",
                 parse_mode="HTML"
             )
-            await callback.answer(); return
+            await callback.answer()
+            return
 
-    percent = random.randint(1, 10)
+    # Генерируем итоговый результат заранее
+    final_percent = random.randint(1, 10)
+
+    # Функция для генерации случайного числа для анимации (исключая финал)
+    def rand(): return random.randint(1, 10)
 
     msg = await callback.message.answer("🎰 | ❓ ❓ ❓ |")
+    
+    # Анимация прокрутки
     await asyncio.sleep(0.6)
-    await msg.edit_text("🎰 | 1% ❓ ❓ |")
+    await msg.edit_text(f"🎰 | {rand()}% ❓ ❓ |")
     await asyncio.sleep(0.6)
-    await msg.edit_text("🎰 | 1% 5% ❓ |")
+    await msg.edit_text(f"🎰 | {rand()}% {rand()}% ❓ |")
     await asyncio.sleep(0.8)
-    await msg.edit_text(f"🎰 | 1% 5% {percent}% |")
+    
+    # Показываем итоговый результат
+    await msg.edit_text(f"🎰 | {rand()}% {rand()}% {final_percent}% |")
     await asyncio.sleep(0.8)
 
+    # Сохранение в БД
     async with AsyncSessionLocal() as s:
         expires = datetime.utcnow() + timedelta(hours=24)
         old = (await s.execute(
             select(UserDiscount).where(UserDiscount.user_id == user_id)
         )).scalar_one_or_none()
+        
         if old:
-            old.percent = percent; old.expires_at = expires; old.created_at = datetime.utcnow()
+            old.percent = final_percent
+            old.expires_at = expires
+            old.created_at = datetime.utcnow()
         else:
-            s.add(UserDiscount(user_id=user_id, percent=percent, expires_at=expires))
+            s.add(UserDiscount(user_id=user_id, percent=final_percent, expires_at=expires))
         await s.commit()
 
     await msg.edit_text(
-        f"{pe('star')} Тебе выпала скидка <b>{percent}%</b> на 24 часа!\n"
+        f"{pe('star')} Тебе выпала скидка <b>{final_percent}%</b> на 24 часа!\n"
         f"{pe('check')} Применяется автоматически при покупке.",
         parse_mode="HTML"
     )
+    
     from services.log_service import log_discount
-    await log_discount(callback.bot, user_id, callback.from_user.username, percent)
+    await log_discount(callback.bot, user_id, callback.from_user.username, final_percent)
     await callback.answer()
+
 
 # ── ПОДДЕРЖКА ─────────────────────────────────────────────────────────────────
 @router.callback_query(F.data == "main_support")
