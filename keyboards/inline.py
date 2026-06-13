@@ -223,5 +223,3 @@ def broadcast_timing_kb():
     b.add(_btn("Назад",            cb="admin_back",         emoji_key="home"))
     b.adjust(2)
     return b.as_markup()
-PYEOF
-echo "ok"
