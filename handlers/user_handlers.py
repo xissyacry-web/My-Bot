@@ -699,5 +699,3 @@ async def unban_confirm_cb(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(UnbanProcess.confirm, F.data == "unban_cancel")
 async def unban_cancel(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("Отменено."); await state.clear()
-PYEOF
-echo "ok"
