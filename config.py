@@ -107,5 +107,3 @@ def pe_coin(asset: str) -> str:
         "TRX": "coin_trx", "SOL": "coin_sol",
     }
     return pe(mapping.get(asset.upper(), "coin_usdt"))
-PYEOF
-echo "ok"
