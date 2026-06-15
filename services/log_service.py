@@ -1,80 +1,38 @@
-from aiogram import Bot
-from config import LOG_CHAT_ID, pe, pe_coin
+from config import LOG_CHAT_ID, pe
 
-async def _send(bot: Bot, text: str):
+async def _log(bot, text: str):
+    if not LOG_CHAT_ID or not bot:
+        return
     try:
         await bot.send_message(LOG_CHAT_ID, text, parse_mode="HTML")
     except Exception as e:
-        print(f"Log error: {e}")
-
-async def log_purchase(bot, user_id, username, product_name, amount,
-                       total_price, cashback=0.0, lines=None):
-    uname = f"@{username}" if username else f"id:{user_id}"
-    cb_part = f"  {pe('star')} кэшбек +{cashback:.4f}$" if cashback else ""
-    text = (
-        f"{pe('box')} <b>Покупка</b>\n"
-        f"{pe('user')} {uname} (<code>{user_id}</code>)\n"
-        f"{pe('briefcase')} <b>{product_name}</b> × {amount}\n"
-        f"{pe('wallet')} {total_price:.2f}${cb_part}"
-    )
-    if lines:
-        nums = "\n".join(
-            f"  {pe('n' + str(min(i, 9)))} <code>{l}</code>"
-            for i, l in enumerate(lines)
-        )
-        text += f"\n\n{pe('books')} <b>Выдано:</b>\n{nums}"
-    await _send(bot, text)
+        print(f"[LOG] {e}")
 
 async def log_register(bot, user_id, username, ref_by=None):
-    if not bot:
-        return
     uname = f"@{username}" if username else f"id:{user_id}"
-    text = (
-        f"{pe('bell')} <b>Новый пользователь</b>\n"
-        f"{pe('user')} {uname} (<code>{user_id}</code>)"
-    )
+    msg = f"{pe('bell')} <b>Новый пользователь</b>\n{pe('user')} {uname} (<code>{user_id}</code>)"
     if ref_by:
-        text += f"\n{pe('link')} реферал от <code>{ref_by}</code>"
-    await _send(bot, text)
+        msg += f"\n{pe('link')} реферал от <code>{ref_by}</code>"
+    await _log(bot, msg)
 
-async def log_refill(bot, user_id, username, amount, asset="USDT"):
+async def log_topup(bot, user_id, username, amount, asset):
     uname = f"@{username}" if username else f"id:{user_id}"
-    await _send(bot,
-        f"{pe('wallet')} <b>Пополнение</b>\n"
-        f"{pe('user')} {uname} (<code>{user_id}</code>)\n"
-        f"{pe_coin(asset)} +{amount:.2f}$ ({asset})"
-    )
+    await _log(bot, f"{pe('wallet')} <b>Пополнение</b>\n{pe('user')} {uname} (<code>{user_id}</code>)\n💰 +{amount:.2f}$ ({asset})")
+
+async def log_purchase(bot, user_id, username, product_name, amount, total, cashback=0, lines=None):
+    uname = f"@{username}" if username else f"id:{user_id}"
+    msg = (f"{pe('box')} <b>Покупка</b>\n{pe('user')} {uname} (<code>{user_id}</code>)\n"
+           f"{pe('briefcase')} <b>{product_name}</b> × {amount}\n{pe('wallet')} {total:.2f}$")
+    if cashback:
+        msg += f"  {pe('star')} кэшбек +{cashback:.4f}$"
+    if lines:
+        nums = "\n".join(f"  {i+1}. <code>{l}</code>" for i, l in enumerate(lines))
+        msg += f"\n\n{pe('books')} <b>Выдано:</b>\n{nums}"
+    await _log(bot, msg)
 
 async def log_promo(bot, user_id, username, code, amount):
     uname = f"@{username}" if username else f"id:{user_id}"
-    await _send(bot,
-        f"{pe('gift')} <b>Промокод</b>\n"
-        f"{pe('user')} {uname} (<code>{user_id}</code>)\n"
-        f"{pe('star')} <code>{code}</code> → +{amount:.2f}$"
-    )
+    await _log(bot, f"{pe('gift')} <b>Промокод</b>\n{pe('user')} {uname} (<code>{user_id}</code>)\n<code>{code}</code> → +{amount:.2f}$")
 
 async def log_broadcast(bot, admin_id, text, ok, fail):
-    await _send(bot,
-        f"{pe('mega')} <b>Рассылка</b>\n"
-        f"{pe('dev')} Админ <code>{admin_id}</code>\n"
-        f"{pe('check')} {ok} доставлено  {pe('ban')} {fail} ошибок\n"
-        f"<i>{text[:80]}</i>"
-    )
-
-async def log_review(bot, user_id, username, product_name, rating, text_review):
-    uname = f"@{username}" if username else f"id:{user_id}"
-    stars = "⭐" * rating
-    await _send(bot,
-        f"{pe('star')} <b>Отзыв</b> {stars}\n"
-        f"{pe('user')} {uname} (<code>{user_id}</code>)\n"
-        f"{pe('briefcase')} {product_name}\n"
-        + (f"<i>{text_review[:200]}</i>" if text_review else "")
-    )
-
-async def log_discount(bot, user_id, username, percent):
-    uname = f"@{username}" if username else f"id:{user_id}"
-    await _send(bot,
-        f"{pe('star')} <b>Скидка</b>\n"
-        f"{pe('user')} {uname} (<code>{user_id}</code>)\n"
-        f"{pe('check')} {percent}% на 24 часа"
-    )
+    await _log(bot, f"{pe('mega')} <b>Рассылка</b>\nАдмин <code>{admin_id}</code>\n✅ {ok}  ❌ {fail}\n<i>{text[:80]}</i>")
