@@ -1,5 +1,8 @@
 from aiogram.fsm.state import State, StatesGroup
 
+class CaptchaState(StatesGroup):
+    waiting = State()
+
 class BuyState(StatesGroup):
     amount = State()
 
@@ -20,39 +23,61 @@ class ReplaceState(StatesGroup):
     text   = State()
 
 class UnbanState(StatesGroup):
-    photos = State()
-    reason = State()
+    photos  = State()
+    reason  = State()
     confirm = State()
 
-# Admin states
+class ReplaceApprove(StatesGroup):
+    msg = State()
+
+class ReplaceReject(StatesGroup):
+    reason = State()
+
+# Admin
 class AddProduct(StatesGroup):
-    cat_id = State(); name = State(); desc = State()
-    price  = State(); qty  = State(); content = State(); file = State()
+    cat_id  = State()
+    name    = State()
+    desc    = State()
+    price   = State()
+    qty     = State()
+    content = State()
+    file    = State()
 
 class EditDesc(StatesGroup):
-    cat_id = State(); prod_id = State(); text = State()
+    cat_id  = State()
+    prod_id = State()
+    text    = State()
 
 class EditPrice(StatesGroup):
-    cat_id = State(); prod_id = State(); price = State()
+    cat_id  = State()
+    prod_id = State()
+    price   = State()
 
 class BulkPrice(StatesGroup):
     action = State()
 
 class RefillProduct(StatesGroup):
-    cat_id = State(); prod_id = State(); content = State()
+    cat_id  = State()
+    prod_id = State()
+    content = State()
 
 class BulkTxt(StatesGroup):
-    cat_id = State(); prod_id = State(); file = State()
+    cat_id  = State()
+    prod_id = State()
+    file    = State()
 
 class DeleteLines(StatesGroup):
-    cat_id = State(); prod_id = State(); lines = State()
+    cat_id  = State()
+    prod_id = State()
+    lines   = State()
 
 class AddCategory(StatesGroup):
     name   = State()
     parent = State()
 
 class DelProduct(StatesGroup):
-    cat_id = State(); prod_id = State()
+    cat_id  = State()
+    prod_id = State()
 
 class DelCategory(StatesGroup):
     cat_id = State()
@@ -61,16 +86,22 @@ class UserFind(StatesGroup):
     uid = State()
 
 class UserBal(StatesGroup):
-    uid = State(); amount = State()
+    uid    = State()
+    amount = State()
 
 class UserBan(StatesGroup):
-    uid = State(); reason = State()
+    uid    = State()
+    reason = State()
 
 class UserCashback(StatesGroup):
-    uid = State(); pct = State()
+    uid = State()
+    pct = State()
 
 class PromoAdd(StatesGroup):
-    code = State(); amount = State(); max_uses = State(); days = State()
+    code     = State()
+    amount   = State()
+    max_uses = State()
+    days     = State()
 
 class PromoDel(StatesGroup):
     code = State()
@@ -78,12 +109,6 @@ class PromoDel(StatesGroup):
 class Broadcast(StatesGroup):
     text     = State()
     schedule = State()
-
-class ReplaceApprove(StatesGroup):
-    msg = State()
-
-class ReplaceReject(StatesGroup):
-    reason = State()
 
 class ImportDB(StatesGroup):
     file = State()
