@@ -86,7 +86,7 @@ async def import_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(f"{pe('warning')} Отправь файл <b>bot.db</b>", parse_mode="HTML", reply_markup=back_kb())
     await state.set_state(AdminImport.file); await callback.answer()
 
-@router.message(AdminImport.file, F.document)
+@router.message(DbImport.file, F.document)
 async def import_file(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     if not message.document.file_name.endswith(".db"):
