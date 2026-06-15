@@ -1,113 +1,92 @@
 from aiogram.fsm.state import State, StatesGroup
 
-class ReplenishBalance(StatesGroup):
+class BuyState(StatesGroup):
+    amount = State()
+
+class TopupState(StatesGroup):
     asset  = State()
     amount = State()
 
-class PromocodeInput(StatesGroup):
+class PromoState(StatesGroup):
     code = State()
 
-class ReplaceRequestStates(StatesGroup):
-    log_time  = State()
-    photos    = State()
-    complaint = State()
-
-class BuyProduct(StatesGroup):
-    amount = State()
-
-class ReviewStates(StatesGroup):
+class ReviewState(StatesGroup):
     rating = State()
     text   = State()
 
-class UnbanProcess(StatesGroup):
-    waiting_photos      = State()
-    waiting_description = State()
-    confirm             = State()
+class ReplaceState(StatesGroup):
+    log    = State()
+    photos = State()
+    text   = State()
 
-class AdminAddProduct(StatesGroup):
-    category_id = State()
-    name        = State()
-    description = State()
-    price       = State()
-    quantity    = State()
-    content     = State()
-    file        = State()
+class UnbanState(StatesGroup):
+    photos = State()
+    reason = State()
+    confirm = State()
 
-class AdminEditDesc(StatesGroup):
-    category_id = State()
-    product_id  = State()
-    new_desc    = State()
+# Admin states
+class AddProduct(StatesGroup):
+    cat_id = State(); name = State(); desc = State()
+    price  = State(); qty  = State(); content = State(); file = State()
 
-class AdminEditPrice(StatesGroup):
-    category_id = State()
-    product_id  = State()
-    new_price   = State()
+class EditDesc(StatesGroup):
+    cat_id = State(); prod_id = State(); text = State()
 
-class AdminBulkPrice(StatesGroup):
-    action = State()   # percent or fixed
+class EditPrice(StatesGroup):
+    cat_id = State(); prod_id = State(); price = State()
 
-class AdminAddCategory(StatesGroup):
-    name      = State()
-    parent_id = State()
+class BulkPrice(StatesGroup):
+    action = State()
 
-class AdminDeleteProduct(StatesGroup):
-    category_id = State()
-    product_id  = State()
+class RefillProduct(StatesGroup):
+    cat_id = State(); prod_id = State(); content = State()
 
-class AdminDeleteCategory(StatesGroup):
-    category_id = State()
+class BulkTxt(StatesGroup):
+    cat_id = State(); prod_id = State(); file = State()
 
-class AdminDeleteLines(StatesGroup):
-    category_id = State()
-    product_id  = State()
-    lines       = State()
+class DeleteLines(StatesGroup):
+    cat_id = State(); prod_id = State(); lines = State()
 
-class AdminPromoAdd(StatesGroup):
-    code            = State()
-    amount          = State()
-    max_activations = State()
-    expires_days    = State()
+class AddCategory(StatesGroup):
+    name   = State()
+    parent = State()
 
-class AdminPromoDelete(StatesGroup):
+class DelProduct(StatesGroup):
+    cat_id = State(); prod_id = State()
+
+class DelCategory(StatesGroup):
+    cat_id = State()
+
+class UserFind(StatesGroup):
+    uid = State()
+
+class UserBal(StatesGroup):
+    uid = State(); amount = State()
+
+class UserBan(StatesGroup):
+    uid = State(); reason = State()
+
+class UserCashback(StatesGroup):
+    uid = State(); pct = State()
+
+class PromoAdd(StatesGroup):
+    code = State(); amount = State(); max_uses = State(); days = State()
+
+class PromoDel(StatesGroup):
     code = State()
 
-class AdminUserSearch(StatesGroup):
-    user_id = State()
+class Broadcast(StatesGroup):
+    text     = State()
+    schedule = State()
 
-class AdminUserBalance(StatesGroup):
-    user_id = State()
-    amount  = State()
+class ReplaceApprove(StatesGroup):
+    msg = State()
 
-class AdminUserBan(StatesGroup):
-    user_id = State()
-    reason  = State()
-
-class AdminUserCashback(StatesGroup):
-    user_id = State()
-    pct     = State()
-
-class AdminBroadcast(StatesGroup):
-    message  = State()
-    schedule = State()   # дата/время или "now"
-
-class AdminReplaceApprove(StatesGroup):
-    message = State()
-
-class AdminReplaceReject(StatesGroup):
+class ReplaceReject(StatesGroup):
     reason = State()
 
-class AdminRefillProduct(StatesGroup):
-    category_id = State()
-    product_id  = State()
-    content     = State()
-
-class AdminBulkProduct(StatesGroup):
-    category_id = State()
-    product_id  = State()
-    file        = State()
-
-class AdminImport(StatesGroup):
+class ImportDB(StatesGroup):
     file = State()
 
-class AdminViewLogs(StatesGroup):
-    user_id = State()
+class ViewLogs(StatesGroup):
+    uid = State()
