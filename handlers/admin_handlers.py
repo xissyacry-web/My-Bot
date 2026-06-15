@@ -8,7 +8,10 @@ import os, sqlite3, shutil, sys
 
 from database.database import AsyncSessionLocal
 from database.models import User, Product, Category, Promocode, UnbanRequest, Invoice, Purchase, ReplaceRequest, ScheduledBroadcast, StockNotify
-from config import ADMIN_IDS, VERSION, pe
+# Было:
+from config import ADMIN_IDS, VERSION, pe, pe_coin, pe_num
+
+
 from utils.states import *
 from services.product_service import get_categories, get_products_by_category
 
