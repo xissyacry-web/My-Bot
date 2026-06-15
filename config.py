@@ -66,3 +66,11 @@ def pe(key: str) -> str:
     return f'<tg-emoji emoji-id="{eid}">{fb}</tg-emoji>'
 
 ASSET_EMOJI = {"USDT":"💵","TON":"💎","BTC":"🟡","ETH":"🔷","LTC":"⚪","BNB":"🟠","TRX":"🔴"}
+def pe_coin(asset: str) -> str:
+    """Возвращает эмодзи для криптовалютного актива"""
+    return ASSET_EMOJI.get(asset, "🪙")
+
+def pe_num(number: int) -> str:
+    """Трансформирует цифры в эмодзи-цифры (например, для топ-списков)"""
+    num_map = {"0":"0️⃣","1":"1️⃣","2":"2️⃣","3":"3️⃣","4":"4️⃣","5":"5️⃣","6":"6️⃣","7":"7️⃣","8":"8️⃣","9":"9️⃣"}
+    return "".join(num_map.get(char, char) for char in str(number))
