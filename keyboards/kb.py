@@ -12,12 +12,7 @@ def ibtn(text: str, cb: str = None, url: str = None) -> IBtn:
     return IBtn(text=text, callback_data=cb)
 
 def kbtn(text: str, emoji_id: str = None) -> KBtn:
-    """Reply-кнопка с кастомным tgp эмодзи"""
-    if emoji_id:
-        try:
-            return KBtn(text=text, icon_custom_emoji_id=emoji_id)
-        except Exception:
-            return KBtn(text=text)
+    """Reply-кнопка (icon_custom_emoji_id доступен только Premium ботам)"""
     return KBtn(text=text)
 
 def _kb(*rows) -> InlineKeyboardMarkup:
@@ -31,13 +26,16 @@ def _rkb(*rows, resize=True, one_time=False) -> ReplyKeyboardMarkup:
     )
 
 # ── ГЛАВНОЕ МЕНЮ (Reply с tgp эмодзи) ────────────────────────────────────────
-def main_reply() -> ReplyKeyboardMarkup:
-    """Reply клавиатура — текст кнопки просто слово, иконка tgp"""
-    return _rkb(
-        [kbtn("Каталог",   E["folder"][0]),  kbtn("Профиль",   E["user"][0])],
-        [kbtn("Замена",    E["hammer"][0]),   kbtn("Поддержка", E["info"][0])],
-        [kbtn("Скидка",    E["star"][0])],
-    )
+def main_reply(is_admin: bool = False) -> ReplyKeyboardMarkup:
+    """Reply клавиатура. Кнопка Админ видна только администратору."""
+    rows = [
+        [KBtn(text="Каталог"),  KBtn(text="Профиль")],
+        [KBtn(text="Замена"),   KBtn(text="Поддержка")],
+        [KBtn(text="Скидка")],
+    ]
+    if is_admin:
+        rows.append([KBtn(text="⚙️ Админ")])
+    return _rkb(*rows)
 
 def remove_kb() -> ReplyKeyboardRemove:
     return ReplyKeyboardRemove()
