@@ -238,10 +238,12 @@ def broadcast_timing() -> InlineKeyboardMarkup:
     )
 
 # алиасы для совместимости
+admin_back       = admin_back_btn  # <-- ДОБАВЬ ЭТУ СТРОКУ
 admin_main_kb    = admin_main
 admin_back_kb    = admin_back_btn
 admin_promos_kb  = admin_promos
 admin_users_kb   = admin_users
 broadcast_timing_kb = broadcast_timing
 unban_action_kb  = unban_action
+
 
