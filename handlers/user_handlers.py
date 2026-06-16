@@ -46,7 +46,8 @@ async def safe_edit(cb: CallbackQuery, text: str, kb=None, pm="HTML"):
 
 async def send_main(target, intro: str = None):
     text = f"{pe('crown')} <b>Главное меню</b>\n\nВыбери раздел:"
-    kb = main_reply()
+    uid = target.from_user.id if isinstance(target, Message) else target.message.chat.id
+    kb = main_reply(is_admin=(uid in ADMIN_IDS))
     if isinstance(target, Message):
         if intro:
             await target.answer(intro, parse_mode="HTML")
@@ -182,6 +183,17 @@ async def msg_replace(message: Message, state: FSMContext):
 async def msg_support(message: Message, state: FSMContext):
     if await state.get_state(): return
     await message.answer(f"{pe('info')} <b>Поддержка</b>\n\n@XissyaSup", parse_mode="HTML", reply_markup=to_main())
+
+@router.message(F.text == "⚙️ Админ")
+async def msg_admin_btn(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    from keyboards.kb import admin_main
+    await message.answer(
+        f"{pe('crown')} <b>Панель администратора</b>",
+        parse_mode="HTML",
+        reply_markup=admin_main()
+    )
 
 @router.message(F.text == "Скидка")
 async def msg_discount(message: Message, state: FSMContext):
