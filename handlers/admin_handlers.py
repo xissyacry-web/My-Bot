@@ -63,15 +63,19 @@ async def admin_scheduled(callback: CallbackQuery):
 def back_kb(cb="admin_back"):
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="◀️ Назад", callback_data=cb)]])
 
+# /admin оставляем как запасной вход
 @router.message(F.text == "/admin")
 async def admin_panel(message: Message):
     if not is_admin(message.from_user.id): return
-    await message.answer(f"{pe('crown')} <b>Админ {VERSION}</b>", parse_mode="HTML", reply_markup=admin_main_kb())
+    await message.answer(f"{pe('crown')} <b>Панель администратора</b>", parse_mode="HTML", reply_markup=admin_main_kb())
 
 @router.callback_query(F.data == "admin_back")
 async def adm_back(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.edit_text(f"{pe('crown')} <b>Админ {VERSION}</b>", parse_mode="HTML", reply_markup=admin_main_kb())
+    try:
+        await callback.message.edit_text(f"{pe('crown')} <b>Панель администратора</b>", parse_mode="HTML", reply_markup=admin_main_kb())
+    except Exception:
+        await callback.message.answer(f"{pe('crown')} <b>Панель администратора</b>", parse_mode="HTML", reply_markup=admin_main_kb())
     await callback.answer()
 
 @router.callback_query(F.data == "admin_export")
@@ -140,7 +144,7 @@ async def stats_show(callback: CallbackQuery):
     )
     await callback.answer()
 
-@router.callback_query(F.data == "admin_top_buyers")
+@router.callback_query(F.data == "a_top")
 async def top_buyers(callback: CallbackQuery):
     if not is_admin(callback.from_user.id): return
     async with AsyncSessionLocal() as s:
@@ -222,7 +226,7 @@ async def broadcast_schedule_save(message: Message, state: FSMContext):
     await message.answer(f"{pe('check')} Запланировано на {send_at.strftime('%d.%m.%Y %H:%M')}", parse_mode="HTML")
     await state.clear()
 
-@router.callback_query(F.data == "admin_add_product")
+@router.callback_query(F.data == "a_add_prod")
 async def add_prod(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     async with AsyncSessionLocal() as s:
@@ -282,7 +286,7 @@ async def ap_file(message: Message, state: FSMContext):
         await s.commit()
     await message.answer(f"{pe('check')} «{data['name']}» добавлен.", parse_mode="HTML"); await state.clear()
 
-@router.callback_query(F.data == "admin_bulk_product")
+@router.callback_query(F.data == "a_bulk_txt")
 async def bulk_start(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     async with AsyncSessionLocal() as s:
@@ -336,7 +340,7 @@ async def bulk_file(message: Message, state: FSMContext):
         await s.commit()
     await message.answer(f"{pe('check')} +{len(new_lines)} строк. Итого: {total}.", parse_mode="HTML"); await state.clear()
 
-@router.callback_query(F.data == "admin_edit_desc")
+@router.callback_query(F.data == "a_edit_desc")
 async def edit_desc(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     async with AsyncSessionLocal() as s:
@@ -371,7 +375,7 @@ async def ed_save(message: Message, state: FSMContext):
         prod.description = message.text; await s.commit()
     await message.answer(f"{pe('check')} Описание обновлено.", parse_mode="HTML"); await state.clear()
 
-@router.callback_query(F.data == "admin_edit_price")
+@router.callback_query(F.data == "a_edit_price")
 async def edit_price(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     async with AsyncSessionLocal() as s:
@@ -408,7 +412,7 @@ async def ep_save(message: Message, state: FSMContext):
         prod.price = price; await s.commit()
     await message.answer(f"{pe('check')} Цена: {price}$", parse_mode="HTML"); await state.clear()
 
-@router.callback_query(F.data == "admin_bulk_price")
+@router.callback_query(F.data == "a_bulk_price")
 async def bulk_price(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     await callback.message.edit_text(
@@ -443,7 +447,7 @@ async def bulk_price_exec(message: Message, state: FSMContext):
         await s.commit()
     await message.answer(f"{pe('check')} Обновлено {count} товаров.", parse_mode="HTML"); await state.clear()
 
-@router.callback_query(F.data == "admin_refill_product")
+@router.callback_query(F.data == "a_refill")
 async def refill_start(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     async with AsyncSessionLocal() as s:
@@ -488,7 +492,7 @@ async def rf_content(message: Message, state: FSMContext):
         await s.commit()
     await message.answer(f"{pe('check')} +{len(new_lines)} строк. Итого: {total}.", parse_mode="HTML"); await state.clear()
 
-@router.callback_query(F.data == "admin_delete_lines")
+@router.callback_query(F.data == "a_del_lines")
 async def del_lines(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     async with AsyncSessionLocal() as s:
@@ -539,7 +543,7 @@ async def dl_exec(message: Message, state: FSMContext):
         prod.content = '\n'.join(new_lines) or None; prod.quantity = len(new_lines); await s.commit()
     await message.answer(f"{pe('check')} Осталось: {len(new_lines)} строк.", parse_mode="HTML"); await state.clear()
 
-@router.callback_query(F.data == "admin_add_category")
+@router.callback_query(F.data == "a_add_cat")
 async def add_cat(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     await callback.message.edit_text("Название:"); await state.set_state(AddCategory.name); await callback.answer()
@@ -559,7 +563,7 @@ async def ac_parent(message: Message, state: FSMContext):
         s.add(Category(name=data['name'], parent_id=pid if pid!=0 else None)); await s.commit()
     await message.answer(f"{pe('check')} «{data['name']}» создана.", parse_mode="HTML"); await state.clear()
 
-@router.callback_query(F.data == "admin_delete_product")
+@router.callback_query(F.data == "a_del_prod")
 async def del_prod(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     async with AsyncSessionLocal() as s:
@@ -588,7 +592,7 @@ async def dp_exec(message: Message, state: FSMContext):
         name = prod.name; await s.delete(prod); await s.commit()
     await message.answer(f"{pe('check')} «{name}» удалён.", parse_mode="HTML"); await state.clear()
 
-@router.callback_query(F.data == "admin_delete_category")
+@router.callback_query(F.data == "a_del_cat")
 async def del_cat(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     async with AsyncSessionLocal() as s:
@@ -607,7 +611,7 @@ async def dc_exec(message: Message, state: FSMContext):
         name = cat.name; await s.delete(cat); await s.commit()
     await message.answer(f"{pe('check')} «{name}» удалена.", parse_mode="HTML"); await state.clear()
 
-@router.callback_query(F.data == "admin_promocodes")
+@router.callback_query(F.data == "a_promo_list")
 async def promos_menu(callback: CallbackQuery):
     if not is_admin(callback.from_user.id): return
     await callback.message.edit_text(f"{pe('gift')} <b>Промокоды</b>", parse_mode="HTML", reply_markup=admin_promos_kb())
@@ -623,10 +627,10 @@ async def promo_list(callback: CallbackQuery):
     for p in promos:
         exp = p.expires_at.strftime('%d.%m.%Y') if p.expires_at else "∞"
         lines.append(f"{'✅' if p.is_active else '❌'} <code>{p.code}</code> +{p.bonus_amount}$ {p.used_count}/{p.max_activations or '∞'} до {exp}")
-    await callback.message.answer("\n".join(lines), parse_mode="HTML", reply_markup=back_kb("admin_promocodes"))
+    await callback.message.answer("\n".join(lines), parse_mode="HTML", reply_markup=back_kb("a_promo_list"))
     await callback.answer()
 
-@router.callback_query(F.data == "promo_add")
+@router.callback_query(F.data == "a_promo_add")
 async def promo_add(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     await callback.message.edit_text("Код промокода:"); await state.set_state(PromoAdd.code); await callback.answer()
@@ -662,7 +666,7 @@ async def pa_exp(message: Message, state: FSMContext):
         await s.commit()
     await message.answer(f"{pe('check')} «{data['code']}» создан.", parse_mode="HTML"); await state.clear()
 
-@router.callback_query(F.data == "promo_delete")
+@router.callback_query(F.data == "a_promo_del")
 async def promo_del(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     await callback.message.edit_text("Код для удаления:"); await state.set_state(PromoDel.code); await callback.answer()
@@ -676,7 +680,7 @@ async def pd_exec(message: Message, state: FSMContext):
         await s.delete(p); await s.commit()
     await message.answer(f"{pe('check')} Удалён.", parse_mode="HTML"); await state.clear()
 
-@router.callback_query(F.data == "admin_users_menu")
+@router.callback_query(F.data == "a_user_find")
 async def users_menu(callback: CallbackQuery):
     if not is_admin(callback.from_user.id): return
     await callback.message.edit_text(f"{pe('users')} <b>Пользователи</b>", parse_mode="HTML", reply_markup=admin_users_kb())
@@ -708,7 +712,7 @@ async def us_show(message: Message, state: FSMContext):
         )
     await state.clear()
 
-@router.callback_query(F.data == "user_balance")
+@router.callback_query(F.data == "a_user_bal")
 async def user_bal(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     await callback.message.edit_text(f"{pe('wallet')} ID:", parse_mode="HTML")
@@ -739,7 +743,7 @@ async def ub_set(message: Message, state: FSMContext):
         await message.answer(f"{pe('check')} Баланс: {user.balance:.2f}$", parse_mode="HTML")
     await state.clear()
 
-@router.callback_query(F.data == "user_ban")
+@router.callback_query(F.data == "a_user_ban")
 async def user_ban(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     await callback.message.edit_text(f"{pe('ban')} ID:", parse_mode="HTML")
@@ -770,7 +774,7 @@ async def ban_exec(message: Message, state: FSMContext):
     except Exception: pass
     await message.answer(f"{pe('check')} {data['user_id']} заблокирован.", parse_mode="HTML"); await state.clear()
 
-@router.callback_query(F.data == "user_cashback")
+@router.callback_query(F.data == "a_user_cb")
 async def user_cb_start(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     await callback.message.edit_text(f"{pe('star')} ID пользователя:", parse_mode="HTML")
@@ -795,7 +799,7 @@ async def ucb_set(message: Message, state: FSMContext):
         user.cashback_pct = pct; await s.commit()
     await message.answer(f"{pe('check')} Кэшбек: {pct}%", parse_mode="HTML"); await state.clear()
 
-@router.callback_query(F.data == "admin_replaces")
+@router.callback_query(F.data == "a_replaces")
 async def admin_replaces(callback: CallbackQuery):
     if not is_admin(callback.from_user.id): return
     async with AsyncSessionLocal() as s:
