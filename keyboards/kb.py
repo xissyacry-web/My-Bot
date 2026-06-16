@@ -4,7 +4,8 @@ from aiogram.types import (
     ReplyKeyboardRemove
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from config import CRYPTO_ASSETS, ASSET_EMOJI, E, eb
+from config import CRYPTO_ASSETS, ASSET_EMOJI, E
+
 
 # ── ХЕЛПЕРЫ ───────────────────────────────────────────────────────────────────
 def ibtn(text: str, cb: str = None, url: str = None) -> IBtn:
@@ -243,4 +244,4 @@ admin_promos_kb  = admin_promos
 admin_users_kb   = admin_users
 broadcast_timing_kb = broadcast_timing
 unban_action_kb  = unban_action
-PYEOF
+
