@@ -1,11 +1,11 @@
 import os
 
 BOT_TOKEN        = os.environ.get("BOT_TOKEN",        "8763758254:AAG9LQKq6KUDnLLv6BFc0hDNA7e7eJN1hLA")
-CRYPTO_BOT_TOKEN = os.environ.get("CRYPTO_BOT_TOKEN", "")
+CRYPTO_BOT_TOKEN = os.environ.get("CRYPTO_BOT_TOKEN", "588982:AArdcMSbXObb22HJ4CCerqfmx9cVFdBXq0a")
 ADMIN_IDS        = [int(x) for x in os.environ.get("ADMIN_IDS", "1073780833").split(",") if x.strip()]
 DATABASE_URL     = os.environ.get("DATABASE_URL",     "sqlite+aiosqlite:///./bot.db")
 BOT_USERNAME     = os.environ.get("BOT_USERNAME",     "XissyaLogBot")
-LOG_CHAT_ID      = int(os.environ.get("LOG_CHAT_ID",  "0") or 0)
+LOG_CHAT_ID      = int(os.environ.get("LOG_CHAT_ID",  "-1003816125421") or 0)
 IMPORT_TOKEN     = os.environ.get("IMPORT_TOKEN",     "secret123")
 VERSION          = "v6.0.0"
 
