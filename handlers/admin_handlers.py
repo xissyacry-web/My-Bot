@@ -289,9 +289,9 @@ async def bulk_start(callback: CallbackQuery, state: FSMContext):
         cats = await get_categories(s)
         if not cats: await callback.message.edit_text("Нет категорий.", reply_markup=back_kb()); return
         t = "Категории:\n" + "\n".join(f"{c.id}: {c.name}" for c in cats) + "\n\nID категории:"
-    await callback.message.edit_text(t); await state.set_state(BulkTxt.category_id); await callback.answer()
+    await callback.message.edit_text(t); await state.set_state(BulkTxt.cat_id); await callback.answer()
 
-@router.message(BulkTxt.category_id)
+@router.message(BulkTxt.cat_id)
 async def bulk_cat(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: cid = int(message.text)
@@ -300,9 +300,9 @@ async def bulk_cat(message: Message, state: FSMContext):
         prods = await get_products_by_category(s, cid)
         if not prods: await message.answer("Нет товаров в категории."); return
         t = "Товары:\n" + "\n".join(f"{p.id}: {p.name}" for p in prods) + "\n\nID товара:"
-    await state.update_data(category_id=cid); await message.answer(t); await state.set_state(BulkTxt.product_id)
+    await state.update_data(category_id=cid); await message.answer(t); await state.set_state(BulkTxt.prod_id)
 
-@router.message(BulkTxt.product_id)
+@router.message(BulkTxt.prod_id)
 async def bulk_prod(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: pid = int(message.text)
@@ -342,9 +342,9 @@ async def edit_desc(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as s:
         cats = await get_categories(s)
         t = "Категории:\n" + "\n".join(f"{c.id}: {c.name}" for c in cats) + "\n\nID категории:"
-    await callback.message.edit_text(t); await state.set_state(EditDesc.category_id); await callback.answer()
+    await callback.message.edit_text(t); await state.set_state(EditDesc.cat_id); await callback.answer()
 
-@router.message(EditDesc.category_id)
+@router.message(EditDesc.cat_id)
 async def ed_cat(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: cid = int(message.text)
@@ -352,16 +352,16 @@ async def ed_cat(message: Message, state: FSMContext):
     async with AsyncSessionLocal() as s:
         prods = await get_products_by_category(s, cid)
         t = "Товары:\n" + "\n".join(f"{p.id}: {p.name} | {(p.description or '—')[:40]}" for p in prods) + "\n\nID товара:"
-    await state.update_data(category_id=cid); await message.answer(t); await state.set_state(EditDesc.product_id)
+    await state.update_data(category_id=cid); await message.answer(t); await state.set_state(EditDesc.prod_id)
 
-@router.message(EditDesc.product_id)
+@router.message(EditDesc.prod_id)
 async def ed_prod(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: pid = int(message.text)
     except Exception: await message.answer("Число."); return
-    await state.update_data(product_id=pid); await message.answer("Новое описание:"); await state.set_state(EditDesc.new_desc)
+    await state.update_data(product_id=pid); await message.answer("Новое описание:"); await state.set_state(EditDesc.text)
 
-@router.message(EditDesc.new_desc)
+@router.message(EditDesc.text)
 async def ed_save(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     data = await state.get_data()
@@ -377,9 +377,9 @@ async def edit_price(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as s:
         cats = await get_categories(s)
         t = "Категории:\n" + "\n".join(f"{c.id}: {c.name}" for c in cats) + "\n\nID категории:"
-    await callback.message.edit_text(t); await state.set_state(EditPrice.category_id); await callback.answer()
+    await callback.message.edit_text(t); await state.set_state(EditPrice.cat_id); await callback.answer()
 
-@router.message(EditPrice.category_id)
+@router.message(EditPrice.cat_id)
 async def ep_cat(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: cid = int(message.text)
@@ -387,16 +387,16 @@ async def ep_cat(message: Message, state: FSMContext):
     async with AsyncSessionLocal() as s:
         prods = await get_products_by_category(s, cid)
         t = "Товары:\n" + "\n".join(f"{p.id}: {p.name} — {p.price}$" for p in prods) + "\n\nID товара:"
-    await state.update_data(category_id=cid); await message.answer(t); await state.set_state(EditPrice.product_id)
+    await state.update_data(category_id=cid); await message.answer(t); await state.set_state(EditPrice.prod_id)
 
-@router.message(EditPrice.product_id)
+@router.message(EditPrice.prod_id)
 async def ep_prod(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: pid = int(message.text)
     except Exception: await message.answer("Число."); return
-    await state.update_data(product_id=pid); await message.answer("Новая цена ($):"); await state.set_state(EditPrice.new_price)
+    await state.update_data(product_id=pid); await message.answer("Новая цена ($):"); await state.set_state(EditPrice.price)
 
-@router.message(EditPrice.new_price)
+@router.message(EditPrice.price)
 async def ep_save(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: price = float(message.text.replace(',','.'))
@@ -449,9 +449,9 @@ async def refill_start(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as s:
         cats = await get_categories(s)
         t = "Категории:\n" + "\n".join(f"{c.id}: {c.name}" for c in cats) + "\n\nID категории:"
-    await callback.message.edit_text(t); await state.set_state(RefillProduct.category_id); await callback.answer()
+    await callback.message.edit_text(t); await state.set_state(RefillProduct.cat_id); await callback.answer()
 
-@router.message(RefillProduct.category_id)
+@router.message(RefillProduct.cat_id)
 async def rf_cat(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: cid = int(message.text)
@@ -459,9 +459,9 @@ async def rf_cat(message: Message, state: FSMContext):
     async with AsyncSessionLocal() as s:
         prods = await get_products_by_category(s, cid)
         t = "Товары:\n" + "\n".join(f"{p.id}: {p.name} ({p.quantity} шт.)" for p in prods) + "\n\nID товара:"
-    await state.update_data(category_id=cid); await message.answer(t); await state.set_state(RefillProduct.product_id)
+    await state.update_data(category_id=cid); await message.answer(t); await state.set_state(RefillProduct.prod_id)
 
-@router.message(RefillProduct.product_id)
+@router.message(RefillProduct.prod_id)
 async def rf_prod(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: pid = int(message.text)
@@ -494,9 +494,9 @@ async def del_lines(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as s:
         cats = await get_categories(s)
         t = "Категории:\n" + "\n".join(f"{c.id}: {c.name}" for c in cats) + "\n\nID категории:"
-    await callback.message.edit_text(t); await state.set_state(DeleteLines.category_id); await callback.answer()
+    await callback.message.edit_text(t); await state.set_state(DeleteLines.cat_id); await callback.answer()
 
-@router.message(DeleteLines.category_id)
+@router.message(DeleteLines.cat_id)
 async def dl_cat(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: cid = int(message.text)
@@ -504,9 +504,9 @@ async def dl_cat(message: Message, state: FSMContext):
     async with AsyncSessionLocal() as s:
         prods = await get_products_by_category(s, cid)
         t = "Товары:\n" + "\n".join(f"{p.id}: {p.name} ({p.quantity} шт.)" for p in prods) + "\n\nID товара:"
-    await state.update_data(category_id=cid); await message.answer(t); await state.set_state(DeleteLines.product_id)
+    await state.update_data(category_id=cid); await message.answer(t); await state.set_state(DeleteLines.prod_id)
 
-@router.message(DeleteLines.product_id)
+@router.message(DeleteLines.prod_id)
 async def dl_prod(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: pid = int(message.text)
@@ -547,9 +547,9 @@ async def add_cat(callback: CallbackQuery, state: FSMContext):
 @router.message(AddCategory.name)
 async def ac_name(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
-    await state.update_data(name=message.text); await message.answer("ID родителя (0=корневая):"); await state.set_state(AddCategory.parent_id)
+    await state.update_data(name=message.text); await message.answer("ID родителя (0=корневая):"); await state.set_state(AddCategory.parent)
 
-@router.message(AddCategory.parent_id)
+@router.message(AddCategory.parent)
 async def ac_parent(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: pid = int(message.text)
@@ -565,9 +565,9 @@ async def del_prod(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as s:
         cats = await get_categories(s)
         t = "Категории:\n" + "\n".join(f"{c.id}: {c.name}" for c in cats) + "\n\nID категории:"
-    await callback.message.edit_text(t); await state.set_state(DelProduct.category_id); await callback.answer()
+    await callback.message.edit_text(t); await state.set_state(DelProduct.cat_id); await callback.answer()
 
-@router.message(DelProduct.category_id)
+@router.message(DelProduct.cat_id)
 async def dp_cat(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: cid = int(message.text)
@@ -575,9 +575,9 @@ async def dp_cat(message: Message, state: FSMContext):
     async with AsyncSessionLocal() as s:
         prods = await get_products_by_category(s, cid)
         t = "Товары:\n" + "\n".join(f"{p.id}: {p.name}" for p in prods) + "\n\nID товара:"
-    await state.update_data(category_id=cid); await message.answer(t); await state.set_state(DelProduct.product_id)
+    await state.update_data(category_id=cid); await message.answer(t); await state.set_state(DelProduct.prod_id)
 
-@router.message(DelProduct.product_id)
+@router.message(DelProduct.prod_id)
 async def dp_exec(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: pid = int(message.text)
@@ -594,9 +594,9 @@ async def del_cat(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as s:
         cats = await get_categories(s)
         t = "Категории:\n" + "\n".join(f"{c.id}: {c.name}" for c in cats) + "\n\nID для удаления:"
-    await callback.message.edit_text(t); await state.set_state(DelCategory.category_id); await callback.answer()
+    await callback.message.edit_text(t); await state.set_state(DelCategory.cat_id); await callback.answer()
 
-@router.message(DelCategory.category_id)
+@router.message(DelCategory.cat_id)
 async def dc_exec(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: cid = int(message.text)
@@ -641,16 +641,16 @@ async def pa_amt(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: amt = float(message.text.replace(',','.'))
     except Exception: await message.answer("Число."); return
-    await state.update_data(amount=amt); await message.answer("Макс. активаций (0=∞):"); await state.set_state(PromoAdd.max_activations)
+    await state.update_data(amount=amt); await message.answer("Макс. активаций (0=∞):"); await state.set_state(PromoAdd.max_uses)
 
-@router.message(PromoAdd.max_activations)
+@router.message(PromoAdd.max_uses)
 async def pa_max(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: mx = int(message.text)
     except Exception: await message.answer("Число."); return
-    await state.update_data(max_activations=None if mx==0 else mx); await message.answer("Срок дней (0=∞):"); await state.set_state(PromoAdd.expires_days)
+    await state.update_data(max_activations=None if mx==0 else mx); await message.answer("Срок дней (0=∞):"); await state.set_state(PromoAdd.days)
 
-@router.message(PromoAdd.expires_days)
+@router.message(PromoAdd.days)
 async def pa_exp(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: days = int(message.text)
@@ -686,9 +686,9 @@ async def users_menu(callback: CallbackQuery):
 async def user_search(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     await callback.message.edit_text(f"{pe('search')} ID:", parse_mode="HTML")
-    await state.set_state(UserFind.user_id); await callback.answer()
+    await state.set_state(UserFind.uid); await callback.answer()
 
-@router.message(UserFind.user_id)
+@router.message(UserFind.uid)
 async def us_show(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: uid = int(message.text.strip())
@@ -712,9 +712,9 @@ async def us_show(message: Message, state: FSMContext):
 async def user_bal(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     await callback.message.edit_text(f"{pe('wallet')} ID:", parse_mode="HTML")
-    await state.set_state(UserBal.user_id); await callback.answer()
+    await state.set_state(UserBal.uid); await callback.answer()
 
-@router.message(UserBal.user_id)
+@router.message(UserBal.uid)
 async def ub_uid(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: uid = int(message.text)
@@ -743,9 +743,9 @@ async def ub_set(message: Message, state: FSMContext):
 async def user_ban(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     await callback.message.edit_text(f"{pe('ban')} ID:", parse_mode="HTML")
-    await state.set_state(UserBan.user_id); await callback.answer()
+    await state.set_state(UserBan.uid); await callback.answer()
 
-@router.message(UserBan.user_id)
+@router.message(UserBan.uid)
 async def ban_uid(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: uid = int(message.text)
@@ -774,9 +774,9 @@ async def ban_exec(message: Message, state: FSMContext):
 async def user_cb_start(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     await callback.message.edit_text(f"{pe('star')} ID пользователя:", parse_mode="HTML")
-    await state.set_state(UserCashback.user_id); await callback.answer()
+    await state.set_state(UserCashback.uid); await callback.answer()
 
-@router.message(UserCashback.user_id)
+@router.message(UserCashback.uid)
 async def ucb_uid(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     try: uid = int(message.text)
@@ -810,9 +810,9 @@ async def admin_replaces(callback: CallbackQuery):
 async def repl_approve(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
     await state.update_data(req_id=int(callback.data.split("_")[2]))
-    await callback.message.answer("Сообщение (одобрение):"); await state.set_state(ReplaceApprove.message); await callback.answer()
+    await callback.message.answer("Сообщение (одобрение):"); await state.set_state(ReplaceApprove.msg); await callback.answer()
 
-@router.message(ReplaceApprove.message)
+@router.message(ReplaceApprove.msg)
 async def repl_approve_msg(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     data = await state.get_data()
