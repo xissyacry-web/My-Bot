@@ -5,17 +5,18 @@ CRYPTO_BOT_TOKEN = os.environ.get("CRYPTO_BOT_TOKEN", "588982:AArdcMSbXObb22HJ4C
 ADMIN_IDS        = [int(x) for x in os.environ.get("ADMIN_IDS", "1073780833").split(",") if x.strip()]
 DATABASE_URL     = os.environ.get("DATABASE_URL",     "sqlite+aiosqlite:///./bot.db")
 BOT_USERNAME     = os.environ.get("BOT_USERNAME",     "XissyaLogBot")
-LOG_CHAT_ID      = int(os.environ.get("LOG_CHAT_ID",  "-1003816125421") or 0)
+LOG_CHAT_ID      = int(os.environ.get("LOG_CHAT_ID",  "0") or 0)
 IMPORT_TOKEN     = os.environ.get("IMPORT_TOKEN",     "secret123")
 VERSION          = "v6.0.0"
 
-CASHBACK_DEFAULT = 1.0   # % кэшбека по умолчанию
-REF_BONUS_PCT    = 10.0  # % от пополнения реферала → пригласившему
+CASHBACK_DEFAULT = 1.0
+REF_BONUS_PCT    = 10.0
 MIN_TOPUP        = 0.5
 
 CRYPTO_ASSETS = ["USDT", "TON", "BTC", "ETH", "LTC", "BNB", "TRX"]
+ASSET_EMOJI   = {"USDT":"💵","TON":"💎","BTC":"🟡","ETH":"🔷","LTC":"⚪","BNB":"🟠","TRX":"🔴"}
 
-# Все 40 премиум эмодзи из Translucent Pack by @v7agency
+# Все 40 tgp эмодзи (Translucent Pack by @v7agency)
 E = {
     "heart":     ("5278611606756942667", "❤️"),
     "folder":    ("5278227821364275264", "📁"),
@@ -57,20 +58,29 @@ E = {
     "lab":       ("5206211858444354221", "🧪"),
     "compass":   ("5206202791768393003", "🧭"),
     "bell":      ("5206222720416643915", "🔔"),
+    # Монеты
+    "coin_usdt": ("5192942020112442148", "🪙"),
+    "coin_ton":  ("5193179982775476271", "🪙"),
+    "coin_btc":  ("5195107400889163662", "🪙"),
+    "coin_eth":  ("5194983413773266305", "🪙"),
+    "coin_ltc":  ("5193059508942824703", "🪙"),
+    "coin_bnb":  ("5193004361562745352", "🪙"),
+    "coin_trx":  ("5195352119535755156", "🪙"),
 }
 
 def pe(key: str) -> str:
-    """Премиум эмодзи для сообщений (parse_mode=HTML)"""
+    """Премиум эмодзи тег для parse_mode=HTML"""
     if key not in E: return ""
     eid, fb = E[key]
     return f'<tg-emoji emoji-id="{eid}">{fb}</tg-emoji>'
 
-ASSET_EMOJI = {"USDT":"💵","TON":"💎","BTC":"🟡","ETH":"🔷","LTC":"⚪","BNB":"🟠","TRX":"🔴"}
 def pe_coin(asset: str) -> str:
-    """Возвращает эмодзи для криптовалютного актива"""
-    return ASSET_EMOJI.get(asset, "🪙")
+    """Монета по тикеру"""
+    key = f"coin_{asset.lower()}"
+    return pe(key) if key in E else ASSET_EMOJI.get(asset.upper(), "🪙")
 
-def pe_num(number: int) -> str:
-    """Трансформирует цифры в эмодзи-цифры (например, для топ-списков)"""
-    num_map = {"0":"0️⃣","1":"1️⃣","2":"2️⃣","3":"3️⃣","4":"4️⃣","5":"5️⃣","6":"6️⃣","7":"7️⃣","8":"8️⃣","9":"9️⃣"}
-    return "".join(num_map.get(char, char) for char in str(number))
+# pe_num и pe_coin_id для совместимости
+def pe_num(n: int) -> str:
+    return str(n)
+
+VERSION = "v6.0.0"
