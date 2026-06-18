@@ -21,8 +21,7 @@ def ibtn(text: str, cb: str = None, url: str = None, emoji_key: str = None, styl
         kwargs["callback_data"] = cb
     if emoji_key and emoji_key in E:
         kwargs["icon_custom_emoji_id"] = E[emoji_key][0]
-    if style:
-        kwargs["style"] = style
+
     return IBtn(**kwargs)
 
 def kbtn(text: str, emoji_key: str = None) -> KBtn:
