@@ -33,69 +33,69 @@ class ReplaceApprove(StatesGroup):
 class ReplaceReject(StatesGroup):
     reason = State()
 
-# Admin
+# ── ADMIN ─────────────────────────────────────────────────────────────────────
 class AddProduct(StatesGroup):
-    cat_id  = State()
-    name    = State()
-    desc    = State()
-    price   = State()
-    qty     = State()
-    content = State()
-    file    = State()
+    category_id = State()
+    name        = State()
+    description = State()
+    price       = State()
+    quantity    = State()
+    content     = State()
+    file        = State()
 
 class EditDesc(StatesGroup):
-    cat_id  = State()
-    prod_id = State()
-    text    = State()
+    category_id = State()
+    product_id  = State()
+    text        = State()
 
 class EditPrice(StatesGroup):
-    cat_id  = State()
-    prod_id = State()
-    price   = State()
+    category_id = State()
+    product_id  = State()
+    price       = State()
 
 class BulkPrice(StatesGroup):
     action = State()
 
 class RefillProduct(StatesGroup):
-    cat_id  = State()
-    prod_id = State()
-    content = State()
+    category_id = State()
+    product_id  = State()
+    content     = State()
 
 class BulkTxt(StatesGroup):
-    cat_id  = State()
-    prod_id = State()
-    file    = State()
+    category_id = State()
+    product_id  = State()
+    file        = State()
 
 class DeleteLines(StatesGroup):
-    cat_id  = State()
-    prod_id = State()
-    lines   = State()
+    category_id = State()
+    product_id  = State()
+    lines       = State()
 
 class AddCategory(StatesGroup):
-    name   = State()
-    parent = State()
+    name      = State()
+    parent_id = State()
 
 class DelProduct(StatesGroup):
-    cat_id  = State()
-    prod_id = State()
+    category_id = State()
+    product_id  = State()
 
 class DelCategory(StatesGroup):
-    cat_id = State()
+    category_id = State()
 
 class UserFind(StatesGroup):
-    uid = State()
+    user_id = State()
 
 class UserBal(StatesGroup):
-    uid    = State()
-    amount = State()
+    user_id = State()
+    amount  = State()
 
 class UserBan(StatesGroup):
-    uid    = State()
-    reason = State()
+    user_id = State()
+    reason  = State()
 
 class UserCashback(StatesGroup):
-    uid = State()
-    pct = State()
+    user_id = State()
+    pct     = State()
 
 class PromoAdd(StatesGroup):
     code     = State()
@@ -114,4 +114,4 @@ class ImportDB(StatesGroup):
     file = State()
 
 class ViewLogs(StatesGroup):
-    uid = State()
+    user_id = State()
